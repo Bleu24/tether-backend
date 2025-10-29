@@ -37,12 +37,34 @@ Key principles
 ```sql
 CREATE DATABASE IF NOT EXISTS tether;
 USE tether;
+
+-- Users table with extended profile fields
 CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(190) NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  gender ENUM('male','female','non-binary','other') NULL,
+  location VARCHAR(255) NULL,
+  bio TEXT NULL,
+  photos JSON NULL,
+  subscription_tier ENUM('free','plus','gold','premium') NOT NULL DEFAULT 'free',
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Profile match preferences
+CREATE TABLE IF NOT EXISTS profile_preferences (
+  user_id INT UNSIGNED NOT NULL,
+  min_age TINYINT UNSIGNED NOT NULL,
+  max_age TINYINT UNSIGNED NOT NULL,
+  distance SMALLINT UNSIGNED NOT NULL,
+  gender_preference ENUM('male','female','non-binary','any') NOT NULL,
+  interests JSON NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id),
+  CONSTRAINT fk_pp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 3. Install and run
@@ -60,12 +82,29 @@ The API will start on http://localhost:4000
 - GET `/api/health` – health check
 - GET `/api/users` – list users
 - POST `/api/users` – create a user
+- GET `/api/users/:id` – get a single user (includes preferences)
+- PUT `/api/users/:id` – update user profile fields (name, gender, location, bio, photos, subscription)
+- GET `/api/users/:userId/preferences` – get profile match preferences
+- PUT `/api/users/:userId/preferences` – create/update (upsert) match preferences
 
 Example create request:
 ```bash
 curl -X POST http://localhost:4000/api/users \
   -H 'Content-Type: application/json' \
   -d '{"name":"Alex","email":"alex@example.com"}'
+```
+
+Update preferences:
+```bash
+curl -X PUT http://localhost:4000/api/users/1/preferences \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "min_age": 22,
+        "max_age": 35,
+        "distance": 30,
+        "gender_preference": "any",
+        "interests": ["music","coffee"]
+      }'
 ```
 
 ## Frontend integration
