@@ -5,7 +5,8 @@ import type { ProfilePreference } from "../models/ProfilePreference";
 export interface IUserRepository {
     findAll(): Promise<User[]>;
     findById(id: number): Promise<User | null>;
-    create(data: Pick<User, "name" | "email"> & Partial<Omit<User, "id" | "created_at" | "preferences">>): Promise<User>;
+    findByEmail(email: string): Promise<User | null>;
+    create(data: (Pick<User, "name" | "email"> & Partial<Omit<User, "id" | "created_at" | "preferences">>) & { password?: string }): Promise<User>;
     updateProfile(id: number, data: Partial<Omit<User, "id" | "email" | "created_at" | "preferences">>): Promise<User>;
 }
 
@@ -15,7 +16,7 @@ export class UserRepository implements IUserRepository {
     async findAll(): Promise<User[]> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
+        `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -30,7 +31,7 @@ export class UserRepository implements IUserRepository {
     async findById(id: number): Promise<User | null> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -45,16 +46,31 @@ export class UserRepository implements IUserRepository {
         }
     }
 
-    async create(data: Pick<User, "name" | "email"> & Partial<Omit<User, "id" | "created_at" | "preferences">>): Promise<User> {
+    async findByEmail(email: string): Promise<User | null> {
+        try {
+            const { rows } = await this.db.query<any>(
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier
+                 FROM users u WHERE u.email = ? LIMIT 1`,
+                [email]
+            );
+            const row = rows[0];
+            return row ? mapUserRowNoPref(row) : null;
+        } catch (err) {
+            throw new Error(`UserRepository.findByEmail failed: ${(err as Error).message}`);
+        }
+    }
+
+    async create(data: (Pick<User, "name" | "email"> & Partial<Omit<User, "id" | "created_at" | "preferences">>) & { password?: string }): Promise<User> {
         try {
             const photos = JSON.stringify(data.photos ?? []);
+            const passwordHash = data.password ? require("bcryptjs").hashSync(data.password, 10) : null;
             await this.db.execute(
-                `INSERT INTO users (name, email, gender, location, bio, photos, subscription_tier)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [data.name, data.email, data.gender ?? null, data.location ?? null, data.bio ?? null, photos, data.subscription_tier ?? "free"]
+                `INSERT INTO users (name, email, password_hash, gender, location, bio, photos, subscription_tier)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [data.name, data.email, passwordHash, data.gender ?? null, data.location ?? null, data.bio ?? null, photos, data.subscription_tier ?? "free"]
             );
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.gender, u.location, u.bio, u.photos, u.subscription_tier
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier
                  FROM users u WHERE u.email = ? LIMIT 1`,
                 [data.email]
             );
@@ -87,6 +103,17 @@ export class UserRepository implements IUserRepository {
     }
 }
 
+function computeAge(birthdate?: string | null): number | null {
+    if (!birthdate) return null;
+    const d = new Date(birthdate);
+    if (Number.isNaN(d.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - d.getFullYear();
+    const m = today.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+    return age;
+}
+
 function mapUserRow(row: any): User {
     const photos = safeParseJSON(row.photos);
     const pref: ProfilePreference | null = row.pref_user_id ? {
@@ -99,11 +126,14 @@ function mapUserRow(row: any): User {
         created_at: row.pref_created_at,
         updated_at: row.pref_updated_at,
     } : null;
+    const birthdate: string | null = row.birthdate ?? null;
     return {
         id: row.id,
         name: row.name,
         email: row.email,
         created_at: row.created_at,
+        birthdate,
+        age: computeAge(birthdate),
         gender: row.gender ?? null,
         location: row.location ?? null,
         bio: row.bio ?? null,
