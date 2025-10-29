@@ -43,7 +43,8 @@ const envSchema = z.object({
     DB_NAME: z.string(),
     DB_CONN_LIMIT: z.coerce.number().default(10),
     DB_SOCKET: z.string().optional(),
-    CORS_ORIGIN: z.string().optional().default("*")
+    CORS_ORIGIN: z.string().optional().default("*"),
+    JWT_SECRET: z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579")
 });
 
 export const env = envSchema.parse(process.env);
