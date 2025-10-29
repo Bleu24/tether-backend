@@ -52,7 +52,9 @@ export async function bootstrapDatabase() {
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(190) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    birthdate DATE NULL,
     gender ENUM('male','female','non-binary','other') NULL,
     location VARCHAR(255) NULL,
     bio TEXT NULL,
@@ -60,6 +62,27 @@ export async function bootstrapDatabase() {
     subscription_tier ENUM('free','plus','gold','premium') NOT NULL DEFAULT 'free',
     PRIMARY KEY (id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Ensure new columns on existing tables (post-creation for idempotency)
+  // Add birthdate column to users if missing (for older databases)
+  const { rows: cols } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'birthdate'`,
+    [env.DB_NAME]
+  );
+  const hasBirthdate = Array.isArray(cols) && cols.length > 0;
+  if (!hasBirthdate) {
+    await db.execute(`ALTER TABLE users ADD COLUMN birthdate DATE NULL`);
+  }
+
+  // Ensure password_hash column exists
+  const { rows: colsPwd } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'password_hash'`,
+    [env.DB_NAME]
+  );
+  const hasPassword = Array.isArray(colsPwd) && colsPwd.length > 0;
+  if (!hasPassword) {
+    await db.execute(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL AFTER email`);
+  }
 
   // Profile preferences
   await db.execute(`CREATE TABLE IF NOT EXISTS profile_preferences (
