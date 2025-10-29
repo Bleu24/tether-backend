@@ -6,16 +6,21 @@ export class MySQLDatabase implements IDatabase {
     #pool: Pool;
 
     constructor() {
-        this.#pool = createPool({
-            host: env.DB_HOST,
-            port: env.DB_PORT,
+        const baseConfig: any = {
             user: env.DB_USER,
             password: env.DB_PASSWORD,
             database: env.DB_NAME,
             connectionLimit: env.DB_CONN_LIMIT,
             waitForConnections: true,
             timezone: "+00:00",
-        });
+        };
+        if (env.DB_SOCKET) {
+            baseConfig.socketPath = env.DB_SOCKET;
+        } else {
+            baseConfig.host = env.DB_HOST;
+            baseConfig.port = env.DB_PORT;
+        }
+        this.#pool = createPool(baseConfig);
     }
 
     async query<T = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
