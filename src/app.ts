@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors";
 import pino from "pino";
+import path from "path";
 import { env } from "./config/env";
 import { apiRouter } from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
-import { devAuthenticate } from "./middleware/auth";
+import { jwtAuthenticate } from "./middleware/jwt";
 
 export function createApp() {
     const app = express();
@@ -16,9 +17,12 @@ export function createApp() {
         allowedHeaders: ["Content-Type", "X-User-Id"],
     }));
     app.use(express.json());
+    // JWT auth: attaches res.locals.userId if cookie is valid
+    app.use(jwtAuthenticate);
 
-    // dev auth: attaches res.locals.userId if provided via header or query
-    app.use(devAuthenticate);
+    // Serve uploaded files statically
+    const uploadsDir = path.resolve(process.cwd(), "uploads");
+    app.use("/uploads", express.static(uploadsDir));
 
     app.get("/", (_req, res) => {
         res.json({ name: "Tether API", version: "0.1.0" });
