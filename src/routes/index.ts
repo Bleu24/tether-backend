@@ -5,6 +5,9 @@ import { swipesRouter } from "./swipes.routes";
 import { matchesRouter } from "./matches.routes";
 import { matchMessagesRouter } from "./match.messages.routes";
 import { messagesRouter } from "./messages.routes";
+import { meRouter } from "./me.routes";
+import { authRouter } from "./auth.routes";
+import { uploadsRouter } from "./uploads.routes";
 
 export function apiRouter(): Router {
     const router = Router();
@@ -13,6 +16,9 @@ export function apiRouter(): Router {
     router.use("/matches", matchesRouter());
     router.use("/matches/:matchId/messages", matchMessagesRouter());
     router.use("/messages", messagesRouter());
+    router.use("/auth", authRouter());
+    router.use("/uploads", uploadsRouter());
+    router.use("/me", meRouter());
     router.use("/users", usersRouter());
     return router;
 }
