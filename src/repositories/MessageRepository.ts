@@ -3,6 +3,7 @@ import { Message } from "../models/Messages";
 
 export interface IMessageRepository {
     listByMatch(matchId: number, userId?: number, limit?: number): Promise<Message[]>;
+    getLatestForMatch(matchId: number, userId?: number): Promise<Message | null>;
     getById(id: number): Promise<Message | null>;
     create(matchId: number, senderId: number, content: string): Promise<Message>;
     updateContent(id: number, senderId: number, content: string): Promise<Message>;
@@ -35,6 +36,30 @@ export class MessageRepository implements IMessageRepository {
             return rows;
         } catch (err) {
             throw new Error(`MessageRepository.listByMatch failed: ${(err as Error).message}`);
+        }
+    }
+
+    async getLatestForMatch(matchId: number, userId?: number): Promise<Message | null> {
+        try {
+            if (userId) {
+                const { rows } = await this.db.query<Message>(
+                    `SELECT m.id, m.match_id, m.sender_id, m.content, m.is_deleted, m.seen, m.created_at, m.updated_at
+                     FROM messages m
+                     LEFT JOIN message_deletions md ON md.message_id = m.id AND md.user_id = ?
+                     WHERE m.match_id = ? AND md.message_id IS NULL
+                     ORDER BY m.created_at DESC LIMIT 1`,
+                    [userId, matchId]
+                );
+                return rows[0] ?? null;
+            }
+            const { rows } = await this.db.query<Message>(
+                `SELECT id, match_id, sender_id, content, is_deleted, seen, created_at, updated_at
+                 FROM messages WHERE match_id = ? ORDER BY created_at DESC LIMIT 1`,
+                [matchId]
+            );
+            return rows[0] ?? null;
+        } catch (err) {
+            throw new Error(`MessageRepository.getLatestForMatch failed: ${(err as Error).message}`);
         }
     }
 
