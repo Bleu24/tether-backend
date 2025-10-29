@@ -4,6 +4,10 @@ import { User } from "../models/User";
 
 const BaseUserDTO = z.object({
     name: z.string().min(1),
+    birthdate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/,{ message: "birthdate must be YYYY-MM-DD" })
+        .optional(),
     gender: z.enum(["male","female","non-binary","other"]).optional(),
     location: z.string().max(200).optional(),
     bio: z.string().max(1000).optional(),
@@ -13,6 +17,7 @@ const BaseUserDTO = z.object({
 
 const CreateUserDTO = BaseUserDTO.extend({
     email: z.string().email(),
+    password: z.string().min(8, 'password must be at least 8 characters').optional(),
 });
 
 const UpdateUserDTO = BaseUserDTO.partial();
@@ -26,7 +31,8 @@ export class UserService {
 
     async create(input: unknown): Promise<User> {
         const dto = CreateUserDTO.parse(input);
-        return this.users.create(dto);
+        const { password, ...rest } = dto as any;
+        return this.users.create({ ...(rest as any), password });
     }
 
     async getById(id: number): Promise<User | null> {
