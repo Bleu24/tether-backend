@@ -8,6 +8,9 @@ export type User = {
     name: string;
     email: string;
     created_at: string; // ISO date
+    // password_hash is stored in DB but never exposed via API model
+    birthdate?: string | null; // YYYY-MM-DD
+    age?: number | null; // computed from birthdate
     gender?: Gender | null;
     location?: string | null; // city or region string
     bio?: string | null;
