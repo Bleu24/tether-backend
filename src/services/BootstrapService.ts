@@ -1,0 +1,134 @@
+import { createPool } from "mysql2/promise";
+import { env } from "../config/env";
+import { DatabaseService } from "./DatabaseService";
+
+export async function bootstrapDatabase() {
+  // First, verify credentials by connecting without a default database
+  const adminConfig: any = {
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
+    waitForConnections: true,
+    connectionLimit: env.DB_CONN_LIMIT,
+    timezone: "+00:00",
+  };
+  if (env.DB_SOCKET) {
+    adminConfig.socketPath = env.DB_SOCKET;
+  } else {
+    adminConfig.host = env.DB_HOST;
+    adminConfig.port = env.DB_PORT;
+  }
+  const adminPool = createPool(adminConfig);
+  let dbExists = false;
+  try {
+    await adminPool.query("SELECT 1");
+    const [schemas] = await adminPool.query(
+      "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?",
+      [env.DB_NAME]
+    );
+    dbExists = Array.isArray(schemas) && (schemas as any[]).length > 0;
+    if (!dbExists) {
+      await adminPool.query(
+        `CREATE DATABASE IF NOT EXISTS \`${env.DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+      dbExists = true;
+    }
+  } catch (err: any) {
+    const hint =
+      "If you're using MySQL's auth_socket plugin for 'root', either create an app user with mysql_native_password " +
+      "or adjust root's plugin. Alternatively, configure DB_SOCKET and use a user allowed via socket with your OS user.";
+    throw new Error(
+      `Cannot connect to MySQL as ${env.DB_USER}@${env.DB_HOST}. Original error: ${err?.message || err}. ${hint}`
+    );
+  } finally {
+    await adminPool.end();
+  }
+
+  // 2) Ensure tables exist (idempotent). Requires CREATE TABLE privileges. If not, log a clear error.
+  // Now connect to the app database and ensure tables
+  const db = DatabaseService.get();
+  try {
+    // Users
+  await db.execute(`CREATE TABLE IF NOT EXISTS users (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(190) NOT NULL UNIQUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    gender ENUM('male','female','non-binary','other') NULL,
+    location VARCHAR(255) NULL,
+    bio TEXT NULL,
+    photos JSON NULL,
+    subscription_tier ENUM('free','plus','gold','premium') NOT NULL DEFAULT 'free',
+    PRIMARY KEY (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Profile preferences
+  await db.execute(`CREATE TABLE IF NOT EXISTS profile_preferences (
+    user_id INT UNSIGNED NOT NULL,
+    min_age TINYINT UNSIGNED NOT NULL,
+    max_age TINYINT UNSIGNED NOT NULL,
+    distance SMALLINT UNSIGNED NOT NULL,
+    gender_preference ENUM('male','female','non-binary','any') NOT NULL,
+    interests JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id),
+    CONSTRAINT fk_pp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Swipes
+  await db.execute(`CREATE TABLE IF NOT EXISTS swipes (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    swiper_id INT UNSIGNED NOT NULL,
+    target_id INT UNSIGNED NOT NULL,
+    direction ENUM('like','pass') NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_swipe_pair (swiper_id, target_id),
+    CONSTRAINT fk_swiper FOREIGN KEY (swiper_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_target FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Matches
+  await db.execute(`CREATE TABLE IF NOT EXISTS matches (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_a_id INT UNSIGNED NOT NULL,
+    user_b_id INT UNSIGNED NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_pair (user_a_id, user_b_id),
+    CONSTRAINT fk_match_user_a FOREIGN KEY (user_a_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_match_user_b FOREIGN KEY (user_b_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Messages
+  await db.execute(`CREATE TABLE IF NOT EXISTS messages (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    match_id INT UNSIGNED NOT NULL,
+    sender_id INT UNSIGNED NOT NULL,
+    content TEXT NULL,
+    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+    seen TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_match (match_id),
+    CONSTRAINT fk_msg_match FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Message deletions
+  await db.execute(`CREATE TABLE IF NOT EXISTS message_deletions (
+    message_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, user_id),
+    CONSTRAINT fk_md_msg FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_md_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  } catch (err: any) {
+    const hint =
+      "If CREATE TABLE is denied, run the schema from backend/README.md manually, or grant CREATE on the DB to your app user.";
+    throw new Error(`Failed to ensure tables: ${err?.message || err}. ${hint}`);
+  }
+}
