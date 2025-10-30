@@ -40,4 +40,21 @@ export class SwipeRepository implements ISwipeRepository {
             throw new Error(`SwipeRepository.listBySwiper failed: ${(err as Error).message}`);
         }
     }
+
+    /**
+     * Remove the swipe record if the current state is a PASS.
+     * Used when a user undoes a rejection, so the pair can re-enter recommendations.
+     */
+    async deleteIfPass(swiperId: number, targetId: number): Promise<{ affected: number }> {
+        try {
+            const result = await this.db.execute(
+                `DELETE FROM swipes WHERE swiper_id = ? AND target_id = ? AND direction = 'pass'`,
+                [swiperId, targetId]
+            );
+            const affected = (result as any)?.[0]?.affectedRows ?? 0;
+            return { affected };
+        } catch (err) {
+            throw new Error(`SwipeRepository.deleteIfPass failed: ${(err as Error).message}`);
+        }
+    }
 }
