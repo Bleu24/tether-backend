@@ -54,6 +54,12 @@ export class WebSocketHub {
           } else if (msg?.type === "unsubscribe" && typeof msg.matchId === "number") {
             this.leaveRoom(socket, msg.matchId);
             socket.send(JSON.stringify({ event: "unsubscribed", data: { matchId: msg.matchId } }));
+          } else if (msg?.type === "typing" && typeof msg.matchId === "number") {
+            // Broadcast typing indicator to the match room if the sender is a member
+            const match = await matchRepo.findById(msg.matchId);
+            if (!match) return;
+            if (match.user_a_id !== userId && match.user_b_id !== userId) return;
+            this.broadcastToMatch(msg.matchId, "message:typing", { matchId: msg.matchId, userId });
           }
         } catch {
           // ignore malformed
