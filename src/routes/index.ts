@@ -8,6 +8,7 @@ import { messagesRouter } from "./messages.routes";
 import { meRouter } from "./me.routes";
 import { authRouter } from "./auth.routes";
 import { uploadsRouter } from "./uploads.routes";
+import { rejectionsRouter } from "./rejections.routes";
 
 export function apiRouter(): Router {
     const router = Router();
@@ -18,6 +19,7 @@ export function apiRouter(): Router {
     router.use("/messages", messagesRouter());
     router.use("/auth", authRouter());
     router.use("/uploads", uploadsRouter());
+    router.use("/rejections", rejectionsRouter());
     router.use("/me", meRouter());
     router.use("/users", usersRouter());
     return router;
