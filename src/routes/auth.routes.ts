@@ -6,5 +6,6 @@ export function authRouter(): Router {
   const controller = new AuthController();
   router.post("/signup", controller.signup);
   router.post("/login", controller.login);
+  router.post("/logout", controller.logout);
   return router;
 }
