@@ -4,6 +4,7 @@ import { UserService } from "../services/UserService";
 import { UserRepository } from "../repositories/UserRepository";
 import { DatabaseService } from "../services/DatabaseService";
 import { setAuthCookie } from "../middleware/jwt";
+import { clearAuthCookie } from "../middleware/jwt";
 import bcrypt from "bcryptjs";
 
 export class AuthController extends BaseController {
@@ -39,5 +40,10 @@ export class AuthController extends BaseController {
     if (!found) return this.fail(res, "User not found", 404);
     setAuthCookie(res, row.id);
     return this.ok(res, found);
+  });
+
+  logout = this.handler(async (_req: Request, res: Response) => {
+    clearAuthCookie(res);
+    return this.ok(res, { success: true });
   });
 }
