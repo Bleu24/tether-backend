@@ -20,7 +20,10 @@ const CreateUserDTO = BaseUserDTO.extend({
     password: z.string().min(8, 'password must be at least 8 characters').optional(),
 });
 
-const UpdateUserDTO = BaseUserDTO.partial();
+const UpdateUserDTO = BaseUserDTO.partial().extend({
+    // Allow clients to mark setup completion; persisted as TINYINT(1) by repository
+    setup_complete: z.boolean().optional(),
+});
 
 export class UserService {
     constructor(private readonly users: IUserRepository) { }
