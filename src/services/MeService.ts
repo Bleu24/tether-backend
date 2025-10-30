@@ -5,12 +5,18 @@ import { UserRepository } from "../repositories/UserRepository";
 import { MatchRepository } from "../repositories/MatchRepository";
 import { MessageRepository } from "../repositories/MessageRepository";
 import { ProfilePreferenceRepository } from "../repositories/ProfilePreferenceRepository";
+import { SwipeRepository } from "../repositories/SwipeRepository";
+import { RejectionRepository } from "../repositories/RejectionRepository";
+import { RecommendationRepository } from "../repositories/RecommendationRepository";
 
 export class MeService {
   private users = new UserRepository(DatabaseService.get());
   private matches = new MatchRepository(DatabaseService.get());
   private messages = new MessageRepository(DatabaseService.get());
   private prefs = new ProfilePreferenceRepository(DatabaseService.get());
+  private swipes = new SwipeRepository(DatabaseService.get());
+  private rejections = new RejectionRepository(DatabaseService.get());
+  private recQueue = new RecommendationRepository(DatabaseService.get());
 
   async getProfile(userId: number): Promise<User | null> {
     return this.users.findById(userId);
@@ -45,11 +51,51 @@ export class MeService {
     const pref = await this.prefs.getByUserId(userId);
     const all = await this.users.findAll();
     const others = all.filter((u) => u.id !== userId);
-    if (!pref) return others;
-    // filter by gender preference when set (any => no filter)
-    return others.filter((u) => {
-      if (!pref.gender_preference || pref.gender_preference === "any") return true;
-      return (u.gender ?? undefined) === pref.gender_preference;
-    });
+
+    // Build exclusion set: users already matched, swiped (like/pass), or actively rejected
+    const myMatches = await this.matches.listForUser(userId);
+    const matchedIds = new Set<number>(myMatches.map((m) => (m.user_a_id === userId ? m.user_b_id : m.user_a_id)));
+    const mySwipes = await this.swipes.listBySwiper(userId, 1000);
+    const swipedIds = new Set<number>(mySwipes.map((s) => s.target_id));
+    const rejectedIdsArr = await this.rejections.listActiveRejectedIds(userId);
+    const rejectedIds = new Set<number>(rejectedIdsArr);
+    const excluded = new Set<number>([...matchedIds, ...swipedIds, ...rejectedIds]);
+
+    const basePool = others.filter((u) => !excluded.has(u.id));
+
+    function filterByPref(list: User[]): User[] {
+      if (!pref || !pref.gender_preference || pref.gender_preference === "any") return list;
+      return list.filter((u) => (u.gender ?? undefined) === pref.gender_preference);
+    }
+
+    // Check existing queued recommendations first
+    const QUEUE_TARGET = 20;
+    let queuedIds = await this.recQueue.getQueuedTargets(userId, QUEUE_TARGET);
+
+    // If queue is short, top it up from pool
+    if (queuedIds.length < QUEUE_TARGET) {
+      const need = QUEUE_TARGET - queuedIds.length;
+      const queuedSet = new Set<number>(queuedIds);
+      // Prefer filtered by preference; then relax if still short
+      const preferred = filterByPref(basePool).filter((u) => !queuedSet.has(u.id));
+      const relaxed = basePool.filter((u) => !queuedSet.has(u.id));
+      const pick: number[] = [];
+      for (const u of preferred) {
+        if (pick.length >= need) break; pick.push(u.id);
+      }
+      if (pick.length < need) {
+        for (const u of relaxed) {
+          if (pick.length >= need) break;
+          if (!preferred.find((p) => p.id === u.id)) pick.push(u.id);
+        }
+      }
+      await this.recQueue.ensureQueued(userId, pick);
+      queuedIds = await this.recQueue.getQueuedTargets(userId, QUEUE_TARGET);
+    }
+
+    // Map queued ids -> users
+    const byId = new Map<number, User>(others.map((u) => [u.id, u] as const));
+    const users = queuedIds.map((id) => byId.get(id)).filter(Boolean) as User[];
+    return users;
   }
 }
