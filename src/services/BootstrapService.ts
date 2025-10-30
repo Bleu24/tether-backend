@@ -60,6 +60,7 @@ export async function bootstrapDatabase() {
     bio TEXT NULL,
     photos JSON NULL,
     subscription_tier ENUM('free','plus','gold','premium') NOT NULL DEFAULT 'free',
+    setup_complete TINYINT(1) NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
@@ -82,6 +83,16 @@ export async function bootstrapDatabase() {
   const hasPassword = Array.isArray(colsPwd) && colsPwd.length > 0;
   if (!hasPassword) {
     await db.execute(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL AFTER email`);
+  }
+
+  // Ensure setup_complete column exists
+  const { rows: colsSetup } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'setup_complete'`,
+    [env.DB_NAME]
+  );
+  const hasSetup = Array.isArray(colsSetup) && colsSetup.length > 0;
+  if (!hasSetup) {
+    await db.execute(`ALTER TABLE users ADD COLUMN setup_complete TINYINT(1) NOT NULL DEFAULT 0 AFTER subscription_tier`);
   }
 
   // Profile preferences
@@ -109,6 +120,17 @@ export async function bootstrapDatabase() {
     UNIQUE KEY uniq_swipe_pair (swiper_id, target_id),
     CONSTRAINT fk_swiper FOREIGN KEY (swiper_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_target FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Rejections: track explicit passes to enable future undo for subscribers
+  await db.execute(`CREATE TABLE IF NOT EXISTS rejections (
+    swiper_id INT UNSIGNED NOT NULL,
+    target_id INT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    undone_at TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (swiper_id, target_id),
+    CONSTRAINT fk_rej_swiper FOREIGN KEY (swiper_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rej_target FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
   // Matches
@@ -148,6 +170,19 @@ export async function bootstrapDatabase() {
     PRIMARY KEY (message_id, user_id),
     CONSTRAINT fk_md_msg FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
     CONSTRAINT fk_md_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Recommendation queue: persist server-side recommendations so they don't repeat on reload
+  await db.execute(`CREATE TABLE IF NOT EXISTS recommendation_queue (
+    user_id INT UNSIGNED NOT NULL,
+    target_id INT UNSIGNED NOT NULL,
+    status ENUM('queued','consumed') NOT NULL DEFAULT 'queued',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    consumed_at TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (user_id, target_id),
+    KEY idx_user_status (user_id, status),
+    CONSTRAINT fk_rq_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rq_target FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   } catch (err: any) {
     const hint =
