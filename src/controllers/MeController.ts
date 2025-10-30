@@ -36,4 +36,24 @@ export class MeController extends BaseController {
     const recs = await this.service.getDiscover(userId);
     return this.ok(res, recs);
   });
+
+  likers = this.handler(async (_req: Request, res: Response) => {
+    const userId = res.locals.userId as number;
+    const users = await this.service.getLikers(userId);
+    return this.ok(res, users);
+  });
+
+  // Pending match celebrations and mark-as-seen can be delegated through MeService
+  pendingMatchCelebrations = this.handler(async (_req: Request, res: Response) => {
+    const userId = res.locals.userId as number;
+    const list = await this.service.getPendingCelebrations(userId);
+    return this.ok(res, list);
+  });
+
+  markMatchCelebrationSeen = this.handler(async (req: Request, res: Response) => {
+    const userId = res.locals.userId as number;
+    const matchId = Number(req.params.id);
+    await this.service.markCelebrationSeen(matchId, userId);
+    return this.ok(res, { id: matchId, seen: true });
+  });
 }
