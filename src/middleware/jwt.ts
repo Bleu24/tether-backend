@@ -40,6 +40,10 @@ export function setAuthCookie(res: Response, userId: number) {
   res.setHeader("Set-Cookie", `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
 }
 
+export function clearAuthCookie(res: Response) {
+  res.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
 export function requireUser(req: Request, res: Response, next: NextFunction) {
   if (typeof res.locals.userId === "number" && res.locals.userId > 0) return next();
   return res.status(401).json({ error: "Unauthorized" });
