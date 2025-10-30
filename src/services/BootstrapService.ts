@@ -146,6 +146,22 @@ export async function bootstrapDatabase() {
     CONSTRAINT fk_match_user_b FOREIGN KEY (user_b_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+  // Ensure celebration flags exist on matches (idempotent ALTERs)
+  const { rows: hasCeleA } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'matches' AND COLUMN_NAME = 'celebration_shown_to_a'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(hasCeleA) || hasCeleA.length === 0) {
+    await db.execute(`ALTER TABLE matches ADD COLUMN celebration_shown_to_a TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active`);
+  }
+  const { rows: hasCeleB } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'matches' AND COLUMN_NAME = 'celebration_shown_to_b'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(hasCeleB) || hasCeleB.length === 0) {
+    await db.execute(`ALTER TABLE matches ADD COLUMN celebration_shown_to_b TINYINT(1) NOT NULL DEFAULT 0 AFTER celebration_shown_to_a`);
+  }
+
   // Messages
   await db.execute(`CREATE TABLE IF NOT EXISTS messages (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
