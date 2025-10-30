@@ -4,6 +4,8 @@ import { RejectionRepository } from "../repositories/RejectionRepository";
 import { DatabaseService } from "./DatabaseService";
 import { RecommendationRepository } from "../repositories/RecommendationRepository";
 import { Swipe } from "../models/Swipe";
+import { MatchRepository } from "../repositories/MatchRepository";
+import { WebSocketHub } from "../realtime/WebSocketHub";
 
 const SwipeDTO = z.object({
     swiperId: z.number().int().positive(),
@@ -31,6 +33,25 @@ export class SwipeService {
         }
         // Mark from recommendation queue as consumed to avoid re-serving on reload
         try { await this.recQueue.markConsumed(dto.swiperId, dto.targetId); } catch {}
+
+        // If this was a 'like', check for mutual like and create a match, then notify both users in real-time
+        if (dto.direction === "like") {
+            try {
+                const matchRepo = new MatchRepository(DatabaseService.get());
+                const match = await matchRepo.createIfMutualLike(dto.swiperId, dto.targetId);
+                const hub = WebSocketHub.get();
+                if (match) {
+                    // Broadcast to both users: it's a match!
+                    hub.sendToUser(match.user_a_id, "match:created", { matchId: match.id, userAId: match.user_a_id, userBId: match.user_b_id, created_at: match.created_at });
+                    hub.sendToUser(match.user_b_id, "match:created", { matchId: match.id, userAId: match.user_a_id, userBId: match.user_b_id, created_at: match.created_at });
+                } else {
+                    // Notify the target user to refresh their likers in real-time
+                    hub.sendToUser(dto.targetId, "likers:refresh", { fromUserId: dto.swiperId });
+                }
+            } catch {
+                // non-fatal
+            }
+        }
         return swipe;
     }
 
