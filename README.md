@@ -111,6 +111,8 @@ CREATE TABLE IF NOT EXISTS matches (
   user_a_id INT UNSIGNED NOT NULL,
   user_b_id INT UNSIGNED NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  celebration_shown_to_a TINYINT(1) NOT NULL DEFAULT 0,
+  celebration_shown_to_b TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uniq_pair (user_a_id, user_b_id),
@@ -179,6 +181,8 @@ Delete semantics:
  - PUT `/api/messages/:id` – edit a message (author only)
  - DELETE `/api/messages/:id?scope=self|everyone&userId=ID` – delete for me or for everyone (author only for everyone)
  - POST `/api/messages/:id/seen` – mark a message seen (body or query: userId)
+ - GET `/api/me/matches/pending-celebrations` – list matches where the current user hasn't seen the celebration yet
+ - POST `/api/me/matches/:id/celebration-seen` – mark the celebration as seen for the current user on a specific match
 - GET `/api/users/:id` – get a single user (includes preferences)
 - PUT `/api/users/:id` – update user profile fields (name, gender, location, bio, photos, subscription)
 - GET `/api/users/:userId/preferences` – get profile match preferences
@@ -263,3 +267,12 @@ const res = await fetch(`${API_URL}/api/users`);
 ```
 
 When you switch to a hosted DB, only `.env` changes — the app code stays the same because it depends on interfaces.
+
+## Schema updates for existing databases
+
+If you created the database before this change, add celebration flags to `matches`:
+
+```sql
+ALTER TABLE matches ADD COLUMN celebration_shown_to_a TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active;
+ALTER TABLE matches ADD COLUMN celebration_shown_to_b TINYINT(1) NOT NULL DEFAULT 0 AFTER celebration_shown_to_a;
+```
