@@ -16,7 +16,7 @@ export class UserRepository implements IUserRepository {
     async findAll(): Promise<User[]> {
         try {
             const { rows } = await this.db.query<any>(
-        `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
+    `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -31,7 +31,7 @@ export class UserRepository implements IUserRepository {
     async findById(id: number): Promise<User | null> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier,
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -49,7 +49,7 @@ export class UserRepository implements IUserRepository {
     async findByEmail(email: string): Promise<User | null> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete
                  FROM users u WHERE u.email = ? LIMIT 1`,
                 [email]
             );
@@ -85,12 +85,14 @@ export class UserRepository implements IUserRepository {
             // Build dynamic set clause for provided fields
             const fields: string[] = [];
             const values: any[] = [];
+            if (data.birthdate !== undefined) { fields.push("birthdate = ?"); values.push(data.birthdate ?? null); }
             if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
             if (data.gender !== undefined) { fields.push("gender = ?"); values.push(data.gender); }
             if (data.location !== undefined) { fields.push("location = ?"); values.push(data.location); }
             if (data.bio !== undefined) { fields.push("bio = ?"); values.push(data.bio); }
             if (data.photos !== undefined) { fields.push("photos = ?"); values.push(JSON.stringify(data.photos)); }
             if (data.subscription_tier !== undefined) { fields.push("subscription_tier = ?"); values.push(data.subscription_tier); }
+            if ((data as any).setup_complete !== undefined) { fields.push("setup_complete = ?"); values.push((data as any).setup_complete ? 1 : 0); }
             if (fields.length) {
                 await this.db.execute(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
             }
@@ -139,6 +141,7 @@ function mapUserRow(row: any): User {
         bio: row.bio ?? null,
         photos: photos ?? [],
         subscription_tier: row.subscription_tier ?? "free",
+        setup_complete: typeof row.setup_complete === 'number' ? row.setup_complete === 1 : !!row.setup_complete,
         preferences: pref,
     } as User;
 }
