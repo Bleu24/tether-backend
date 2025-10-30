@@ -23,6 +23,8 @@ export class MeService {
   }
 
   async getMatches(userId: number): Promise<Match[]> {
+    // Ensure mutual likes are materialized as matches before returning
+    try { await this.matches.createMissingForUser(userId); } catch {}
     return this.matches.listForUser(userId);
   }
 
@@ -30,6 +32,8 @@ export class MeService {
    * Conversations: list matches for user with latest message and the other participant's user details.
    */
   async getConversations(userId: number): Promise<Array<{ match: Match; latestMessage: any | null; otherUser: User | null }>> {
+    // Reconcile unseen matches so conversations reflect fresh mutual likes
+    try { await this.matches.createMissingForUser(userId); } catch {}
     const list = await this.matches.listForUser(userId);
     const results: Array<{ match: Match; latestMessage: any | null; otherUser: User | null }> = [];
     for (const m of list) {
@@ -46,6 +50,8 @@ export class MeService {
    * Note: Users do not have age or geo fields to filter by min/max age or distance yet.
    */
   async getDiscover(userId: number): Promise<User[]> {
+    // Reconcile first so matched users are excluded from discover
+    try { await this.matches.createMissingForUser(userId); } catch {}
     const me = await this.users.findById(userId);
     if (!me) return [];
     const pref = await this.prefs.getByUserId(userId);
@@ -97,5 +103,53 @@ export class MeService {
     const byId = new Map<number, User>(others.map((u) => [u.id, u] as const));
     const users = queuedIds.map((id) => byId.get(id)).filter(Boolean) as User[];
     return users;
+  }
+
+  /**
+   * Likers: users who have swiped 'like' on me but there's no mutual match yet.
+   */
+  async getLikers(userId: number): Promise<User[]> {
+    // Reconcile unseen matches first so mutual likes don't appear as mere likers
+    try { await this.matches.createMissingForUser(userId); } catch {}
+    // Find users who liked me
+    const { rows } = await DatabaseService.get().query<any>(
+      `SELECT s.swiper_id AS liker_id
+       FROM swipes s
+       WHERE s.target_id = ? AND s.direction = 'like'
+         AND NOT EXISTS (
+           SELECT 1 FROM swipes s2
+           WHERE s2.swiper_id = ? AND s2.target_id = s.swiper_id AND s2.direction = 'like'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM matches m
+           WHERE m.user_a_id = LEAST(?, s.swiper_id)
+             AND m.user_b_id = GREATEST(?, s.swiper_id)
+             AND m.is_active = 1
+         )
+       ORDER BY s.created_at DESC
+       LIMIT 50`,
+      [userId, userId, userId, userId]
+    );
+    const ids: number[] = rows.map((r: any) => Number(r.liker_id)).filter((n: any) => Number.isFinite(n));
+    const out: User[] = [];
+    for (const id of ids) {
+      const u = await this.users.findById(id);
+      if (u) out.push(u);
+    }
+    return out;
+  }
+
+  /**
+   * Pending match celebrations for the current user. Returns Match rows where the user's
+   * celebration flag is still unset (0). Best-effort reconciliation is already performed
+   * inside MatchRepository methods called by MeService elsewhere.
+   */
+  async getPendingCelebrations(userId: number): Promise<Match[]> {
+    try { await this.matches.createMissingForUser(userId); } catch {}
+    return this.matches.listPendingCelebrations(userId);
+  }
+
+  async markCelebrationSeen(matchId: number, userId: number): Promise<void> {
+    return this.matches.markCelebrationShown(matchId, userId);
   }
 }
