@@ -44,7 +44,13 @@ const envSchema = z.object({
     DB_CONN_LIMIT: z.coerce.number().default(10),
     DB_SOCKET: z.string().optional(),
     CORS_ORIGIN: z.string().optional().default("*"),
-    JWT_SECRET: z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579")
+    JWT_SECRET: z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579"),
+    COOKIE_DOMAIN: z.string().optional(),
+    // S3/R2 storage (optional)
+    S3_BUCKET: z.string().optional(),
+    S3_REGION: z.string().optional(),
+    S3_ENDPOINT: z.string().optional(), // for R2 or custom endpoints
+    S3_PUBLIC_BASE_URL: z.string().optional(), // e.g. https://cdn.example.com or https://<bucket>.<region>.amazonaws.com
 });
 
 export const env = envSchema.parse(process.env);
