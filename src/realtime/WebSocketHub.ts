@@ -28,6 +28,7 @@ export class WebSocketHub {
   private clients = new Map<WebSocket, ClientInfo>();
   private matchRooms = new Map<number, Set<WebSocket>>();
   private userIndex = new Map<number, Set<WebSocket>>();
+  private heartbeatTimer: NodeJS.Timer | null = null;
 
   static init(server: Server): WebSocketHub {
     if (!this._instance) {
@@ -43,11 +44,20 @@ export class WebSocketHub {
   }
 
   private attach(server: Server) {
-    this.wss = new WebSocketServer({ server, path: "/ws" });
+    // Accept upgrades on any path and validate manually so we can support both /ws and /api/ws behind proxies/rewrite rules
+    this.wss = new WebSocketServer({ server });
     const db = DatabaseService.get();
     const matchRepo = new MatchRepository(db);
 
   this.wss.on("connection", async (socket: WebSocket, req: IncomingMessage) => {
+      // Heartbeat tracking to keep connections alive behind proxies
+      (socket as any).isAlive = true;
+      socket.on("pong", () => { (socket as any).isAlive = true; });
+      const pathname = new URL(req.url ?? "", "http://localhost").pathname || "/";
+      if (pathname !== "/ws" && pathname !== "/api/ws") {
+        try { socket.close(1008, "Invalid path"); } catch {}
+        return;
+      }
       const url = new URL(req.url ?? "", "http://localhost");
       // Prefer JWT token for auth, fallback to userId (legacy)
       let userId: number | null = null;
@@ -74,7 +84,11 @@ export class WebSocketHub {
         if (userIdParam && Number.isFinite(id) && id > 0) userId = id;
       }
       if (!userId) {
-        socket.close(1008, "unauthorized");
+        // Don't hard-close; allow connection to stay open for later auth or passive features
+        try { socket.send(JSON.stringify({ event: "unauthorized" })); } catch {}
+        // Do not register this socket until authenticated
+        socket.on("close", () => socket.terminate());
+        socket.on("error", () => socket.terminate());
         return;
       }
 
@@ -108,6 +122,21 @@ export class WebSocketHub {
       socket.on("close", () => this.cleanup(socket));
       socket.on("error", () => this.cleanup(socket));
     });
+
+    // Initialize heartbeat pings (runs once)
+    if (!this.heartbeatTimer) {
+      this.heartbeatTimer = setInterval(() => {
+        for (const ws of this.wss.clients) {
+          const alive = (ws as any).isAlive;
+          if (alive === false) {
+            try { ws.terminate(); } catch {}
+            continue;
+          }
+          (ws as any).isAlive = false;
+          try { ws.ping(); } catch {}
+        }
+      }, 30000);
+    }
   }
 
   private addToUserIndex(userId: number, socket: WebSocket) {

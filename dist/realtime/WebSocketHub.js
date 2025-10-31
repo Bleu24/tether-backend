@@ -29,6 +29,7 @@ class WebSocketHub {
         this.clients = new Map();
         this.matchRooms = new Map();
         this.userIndex = new Map();
+        this.heartbeatTimer = null;
     }
     static init(server) {
         if (!this._instance) {
@@ -43,10 +44,22 @@ class WebSocketHub {
         return this._instance;
     }
     attach(server) {
-        this.wss = new ws_1.WebSocketServer({ server, path: "/ws" });
+        // Accept upgrades on any path and validate manually so we can support both /ws and /api/ws behind proxies/rewrite rules
+        this.wss = new ws_1.WebSocketServer({ server });
         const db = DatabaseService_1.DatabaseService.get();
         const matchRepo = new MatchRepository_1.MatchRepository(db);
         this.wss.on("connection", async (socket, req) => {
+            // Heartbeat tracking to keep connections alive behind proxies
+            socket.isAlive = true;
+            socket.on("pong", () => { socket.isAlive = true; });
+            const pathname = new URL(req.url ?? "", "http://localhost").pathname || "/";
+            if (pathname !== "/ws" && pathname !== "/api/ws") {
+                try {
+                    socket.close(1008, "Invalid path");
+                }
+                catch { }
+                return;
+            }
             const url = new URL(req.url ?? "", "http://localhost");
             // Prefer JWT token for auth, fallback to userId (legacy)
             let userId = null;
@@ -76,7 +89,14 @@ class WebSocketHub {
                     userId = id;
             }
             if (!userId) {
-                socket.close(1008, "unauthorized");
+                // Don't hard-close; allow connection to stay open for later auth or passive features
+                try {
+                    socket.send(JSON.stringify({ event: "unauthorized" }));
+                }
+                catch { }
+                // Do not register this socket until authenticated
+                socket.on("close", () => socket.terminate());
+                socket.on("error", () => socket.terminate());
                 return;
             }
             this.addToUserIndex(userId, socket);
@@ -114,6 +134,26 @@ class WebSocketHub {
             socket.on("close", () => this.cleanup(socket));
             socket.on("error", () => this.cleanup(socket));
         });
+        // Initialize heartbeat pings (runs once)
+        if (!this.heartbeatTimer) {
+            this.heartbeatTimer = setInterval(() => {
+                for (const ws of this.wss.clients) {
+                    const alive = ws.isAlive;
+                    if (alive === false) {
+                        try {
+                            ws.terminate();
+                        }
+                        catch { }
+                        continue;
+                    }
+                    ws.isAlive = false;
+                    try {
+                        ws.ping();
+                    }
+                    catch { }
+                }
+            }, 30000);
+        }
     }
     addToUserIndex(userId, socket) {
         if (!this.userIndex.has(userId))
