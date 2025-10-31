@@ -61,6 +61,7 @@ export async function bootstrapDatabase() {
     photos JSON NULL,
     subscription_tier ENUM('free','plus','gold','premium') NOT NULL DEFAULT 'free',
     setup_complete TINYINT(1) NOT NULL DEFAULT 0,
+    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
@@ -93,6 +94,16 @@ export async function bootstrapDatabase() {
   const hasSetup = Array.isArray(colsSetup) && colsSetup.length > 0;
   if (!hasSetup) {
     await db.execute(`ALTER TABLE users ADD COLUMN setup_complete TINYINT(1) NOT NULL DEFAULT 0 AFTER subscription_tier`);
+  }
+
+  // Ensure is_deleted column exists
+  const { rows: colsDeleted } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_deleted'`,
+    [env.DB_NAME]
+  );
+  const hasIsDeleted = Array.isArray(colsDeleted) && colsDeleted.length > 0;
+  if (!hasIsDeleted) {
+    await db.execute(`ALTER TABLE users ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0 AFTER setup_complete`);
   }
 
   // Profile preferences
@@ -199,6 +210,51 @@ export async function bootstrapDatabase() {
     KEY idx_user_status (user_id, status),
     CONSTRAINT fk_rq_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_rq_target FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Super Likes
+  await db.execute(`CREATE TABLE IF NOT EXISTS super_likes (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    sender_id INT UNSIGNED NOT NULL,
+    receiver_id INT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_sender_created (sender_id, created_at),
+    KEY idx_receiver_created (receiver_id, created_at),
+    CONSTRAINT fk_sl_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_sl_receiver FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Boosts
+  await db.execute(`CREATE TABLE IF NOT EXISTS boosts (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id INT UNSIGNED NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (id),
+    KEY idx_user_active (user_id, is_active),
+    KEY idx_user_time (user_id, start_time, end_time),
+    CONSTRAINT fk_boost_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Soft-deleted users snapshot table
+  await db.execute(`CREATE TABLE IF NOT EXISTS soft_deleted_users (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    source_user_id INT UNSIGNED NULL,
+    email VARCHAR(190) NOT NULL,
+    name VARCHAR(100) NULL,
+    birthdate DATE NULL,
+    gender ENUM('male','female','non-binary','other') NULL,
+    location VARCHAR(255) NULL,
+    bio TEXT NULL,
+    photos JSON NULL,
+    preferences JSON NULL,
+    subscription_tier ENUM('free','plus','gold','premium') NULL,
+    deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_email (email),
+    CONSTRAINT fk_sdu_user FOREIGN KEY (source_user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   } catch (err: any) {
     const hint =
