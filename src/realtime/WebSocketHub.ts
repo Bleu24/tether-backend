@@ -2,6 +2,8 @@ import { WebSocketServer, WebSocket, RawData } from "ws";
 import type { Server, IncomingMessage } from "http";
 import { MatchRepository } from "../repositories/MatchRepository";
 import { DatabaseService } from "../services/DatabaseService";
+import jwt from "jsonwebtoken";
+import { env } from "../config/env";
 
 type ClientInfo = { userId: number; subscriptions: Set<number> };
 
@@ -32,15 +34,30 @@ export class WebSocketHub {
 
   this.wss.on("connection", async (socket: WebSocket, req: IncomingMessage) => {
       const url = new URL(req.url ?? "", "http://localhost");
-      const userIdParam = url.searchParams.get("userId");
-      const userId = Number(userIdParam);
-      if (!userIdParam || !userId || Number.isNaN(userId)) {
-        socket.close(1008, "userId is required");
+      // Prefer JWT token for auth, fallback to userId (legacy)
+      let userId: number | null = null;
+      const token = url.searchParams.get("token");
+      if (token) {
+        try {
+          const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
+          const id = Number(payload.sub);
+          if (Number.isFinite(id) && id > 0) userId = id;
+        } catch {
+          // invalid token
+        }
+      }
+      if (userId === null) {
+        const userIdParam = url.searchParams.get("userId");
+        const id = Number(userIdParam);
+        if (userIdParam && Number.isFinite(id) && id > 0) userId = id;
+      }
+      if (!userId) {
+        socket.close(1008, "unauthorized");
         return;
       }
 
-      this.addToUserIndex(userId, socket);
-      this.clients.set(socket, { userId, subscriptions: new Set() });
+  this.addToUserIndex(userId, socket);
+  this.clients.set(socket, { userId, subscriptions: new Set() });
 
   socket.on("message", async (raw: RawData) => {
         try {
