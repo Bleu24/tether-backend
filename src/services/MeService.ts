@@ -8,6 +8,8 @@ import { ProfilePreferenceRepository } from "../repositories/ProfilePreferenceRe
 import { SwipeRepository } from "../repositories/SwipeRepository";
 import { RejectionRepository } from "../repositories/RejectionRepository";
 import { RecommendationRepository } from "../repositories/RecommendationRepository";
+import { SuperLikeRepository } from "../repositories/SuperLikeRepository";
+import { BoostRepository } from "../repositories/BoostRepository";
 
 export class MeService {
   private users = new UserRepository(DatabaseService.get());
@@ -17,6 +19,8 @@ export class MeService {
   private swipes = new SwipeRepository(DatabaseService.get());
   private rejections = new RejectionRepository(DatabaseService.get());
   private recQueue = new RecommendationRepository(DatabaseService.get());
+  private superlikes = new SuperLikeRepository(DatabaseService.get());
+  private boosts = new BoostRepository(DatabaseService.get());
 
   async getProfile(userId: number): Promise<User | null> {
     return this.users.findById(userId);
@@ -56,7 +60,7 @@ export class MeService {
     if (!me) return [];
     const pref = await this.prefs.getByUserId(userId);
     const all = await this.users.findAll();
-    const others = all.filter((u) => u.id !== userId);
+  const others = all.filter((u) => u.id !== userId && !(u as any).is_deleted);
 
     // Build exclusion set: users already matched, swiped (like/pass), or actively rejected
     const myMatches = await this.matches.listForUser(userId);
@@ -67,14 +71,14 @@ export class MeService {
     const rejectedIds = new Set<number>(rejectedIdsArr);
     const excluded = new Set<number>([...matchedIds, ...swipedIds, ...rejectedIds]);
 
-    const basePool = others.filter((u) => !excluded.has(u.id));
+  const basePool = others.filter((u) => !excluded.has(u.id));
 
     function filterByPref(list: User[]): User[] {
       if (!pref || !pref.gender_preference || pref.gender_preference === "any") return list;
       return list.filter((u) => (u.gender ?? undefined) === pref.gender_preference);
     }
 
-    // Check existing queued recommendations first
+  // Check existing queued recommendations first
     const QUEUE_TARGET = 20;
     let queuedIds = await this.recQueue.getQueuedTargets(userId, QUEUE_TARGET);
 
@@ -83,19 +87,76 @@ export class MeService {
       const need = QUEUE_TARGET - queuedIds.length;
       const queuedSet = new Set<number>(queuedIds);
       // Prefer filtered by preference; then relax if still short
-      const preferred = filterByPref(basePool).filter((u) => !queuedSet.has(u.id));
-      const relaxed = basePool.filter((u) => !queuedSet.has(u.id));
-      const pick: number[] = [];
-      for (const u of preferred) {
-        if (pick.length >= need) break; pick.push(u.id);
+  // Strictly respect gender preference: do NOT relax beyond the selected preference
+  const preferred = filterByPref(basePool).filter((u) => !queuedSet.has(u.id));
+
+      // Ranking inputs
+      await this.boosts.deactivateExpired();
+      const boostedIds = new Set<number>(await this.boosts.listActiveIds(preferred.map(u=>u.id)));
+      const superLikedMe = new Set<number>(await this.superlikes.listSendersTo(userId, 500));
+      const iSuperLiked = new Set<number>();
+      {
+        const { rows } = await DatabaseService.get().query<any>(
+          `SELECT receiver_id FROM super_likes WHERE sender_id = ?`, [userId]
+        );
+        rows.forEach((r: any) => iSuperLiked.add(Number(r.receiver_id)));
       }
-      if (pick.length < need) {
-        for (const u of relaxed) {
-          if (pick.length >= need) break;
-          if (!preferred.find((p) => p.id === u.id)) pick.push(u.id);
+      const myInterests: string[] = Array.isArray(pref?.interests) ? pref!.interests : [];
+
+      function affinityScore(a: User): number {
+        const otherInterests: string[] = Array.isArray((a as any)?.preferences?.interests) ? (a as any).preferences.interests : [];
+        const setA = new Set(otherInterests);
+        let overlap = 0;
+        for (const k of myInterests) if (setA.has(k)) overlap++;
+        const denom = Math.max(1, new Set([...myInterests, ...otherInterests]).size);
+        return overlap / denom; // 0..1
+      }
+
+      function score(a: User): number {
+        let s = affinityScore(a);
+        const boosted = boostedIds.has(a.id);
+        const aSuperLikedMe = superLikedMe.has(a.id);
+        const mutualSuper = aSuperLikedMe && iSuperLiked.has(a.id);
+        if (boosted) s += 0.3;
+        if (mutualSuper) s += 1.0; else if (aSuperLikedMe) s += 0.5;
+        return s;
+      }
+
+  const candidates = preferred;
+      const ranked = candidates
+        .map(u => ({ u, s: score(u), boosted: boostedIds.has(u.id) }))
+        .sort((a, b) => b.s - a.s)
+        .slice(0, need);
+
+      // Avoid >2 boosted in a row
+      const ordered: number[] = [];
+      let boostedRun = 0;
+      const pool = [...ranked];
+      while (pool.length > 0) {
+        const nextIdx = (() => {
+          if (boostedRun >= 2) {
+            // find first non-boosted
+            const idx = pool.findIndex(x => !x.boosted);
+            if (idx !== -1) return idx;
+          }
+          return 0; // take top
+        })();
+        const [pick] = pool.splice(nextIdx, 1);
+        ordered.push(pick.u.id);
+        boostedRun = pick.boosted ? boostedRun + 1 : 0;
+      }
+
+      await this.recQueue.ensureQueued(userId, ordered);
+      // Re-prioritize by adjusting created_at sequence to preserve ordering
+      try {
+        for (let i = 0; i < ordered.length; i++) {
+          await DatabaseService.get().execute(
+            `UPDATE recommendation_queue SET created_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ? SECOND)
+             WHERE user_id = ? AND target_id = ? AND status = 'queued'`,
+            [ordered.length - i, userId, ordered[i]]
+          );
         }
-      }
-      await this.recQueue.ensureQueued(userId, pick);
+      } catch {}
       queuedIds = await this.recQueue.getQueuedTargets(userId, QUEUE_TARGET);
     }
 
@@ -129,6 +190,28 @@ export class MeService {
        ORDER BY s.created_at DESC
        LIMIT 50`,
       [userId, userId, userId, userId]
+    );
+    const ids: number[] = rows.map((r: any) => Number(r.liker_id)).filter((n: any) => Number.isFinite(n));
+    const out: User[] = [];
+    for (const id of ids) {
+      const u = await this.users.findById(id);
+      if (u) out.push(u);
+    }
+    return out;
+  }
+
+  /**
+   * SuperLikers: users who sent me a Super Like.
+   */
+  async getSuperLikers(userId: number): Promise<User[]> {
+    const { rows } = await DatabaseService.get().query<any>(
+      `SELECT s.sender_id AS liker_id, MAX(s.created_at) AS last_created
+       FROM super_likes s
+       WHERE s.receiver_id = ?
+       GROUP BY s.sender_id
+       ORDER BY last_created DESC
+       LIMIT 200`,
+      [userId]
     );
     const ids: number[] = rows.map((r: any) => Number(r.liker_id)).filter((n: any) => Number.isFinite(n));
     const out: User[] = [];
