@@ -11,6 +11,7 @@ import { uploadsRouter } from "./uploads.routes";
 import { rejectionsRouter } from "./rejections.routes";
 import { superLikeRouter } from "./superlike.routes";
 import { boostRouter } from "./boost.routes";
+import { locationRouter } from "./location.routes";
 
 export function apiRouter(): Router {
     const router = Router();
@@ -24,6 +25,7 @@ export function apiRouter(): Router {
     router.use("/rejections", rejectionsRouter());
     router.use("/superlike", superLikeRouter());
     router.use("/boost", boostRouter());
+    router.use("/update-location", locationRouter());
     router.use("/me", meRouter());
     router.use("/users", usersRouter());
     return router;
