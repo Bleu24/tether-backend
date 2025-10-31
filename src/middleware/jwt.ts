@@ -37,7 +37,8 @@ export function jwtAuthenticate(req: Request, res: Response, next: NextFunction)
 export function setAuthCookie(res: Response, userId: number) {
   const token = jwt.sign({ sub: String(userId) }, env.JWT_SECRET, { expiresIn: "30d" });
   // Cookie flags for production readiness
-  const sameSite = env.COOKIE_SAMESITE || (env.NODE_ENV === "production" ? "None" : "Lax");
+  const explicit = process.env.COOKIE_SAMESITE; // prefer real env var to detect explicit overrides
+  const sameSite = explicit ?? (env.NODE_ENV === "production" ? "None" : "Lax");
   const attrs = [
     `${COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
@@ -51,7 +52,8 @@ export function setAuthCookie(res: Response, userId: number) {
 }
 
 export function clearAuthCookie(res: Response) {
-  const sameSite = env.COOKIE_SAMESITE || (env.NODE_ENV === "production" ? "None" : "Lax");
+  const explicit = process.env.COOKIE_SAMESITE;
+  const sameSite = explicit ?? (env.NODE_ENV === "production" ? "None" : "Lax");
   const attrs = [
     `${COOKIE_NAME}=`,
     "Path=/",
