@@ -3,6 +3,8 @@ import { IMessageRepository } from "../repositories/MessageRepository";
 import { IMatchRepository } from "../repositories/MatchRepository";
 import { Message } from "../models/Messages";
 import { IMessageEventPublisher } from "../realtime/IMessageEventPublisher";
+import { UserRepository } from "../repositories/UserRepository";
+import { DatabaseService } from "./DatabaseService";
 
 const CreateMessageDTO = z.object({
   matchId: z.number().int().positive(),
@@ -31,6 +33,15 @@ export class MessageService {
   async create(input: z.infer<typeof CreateMessageDTO>): Promise<Message> {
     const data = CreateMessageDTO.parse(input);
     await this.ensureMember(data.matchId, data.senderId);
+    // Prevent sending if either participant is soft-deleted
+    const users = new UserRepository(DatabaseService.get());
+    const match = await this.matches.findById(data.matchId);
+    if (!match) throw new Error("Match not found");
+    const otherId = match.user_a_id === data.senderId ? match.user_b_id : match.user_a_id;
+    const [sender, other] = await Promise.all([users.findById(data.senderId), users.findById(otherId)]);
+    if ((sender as any)?.is_deleted || (other as any)?.is_deleted) {
+      throw new Error("Messaging disabled: one of the users deleted their account");
+    }
     const created = await this.messages.create(data.matchId, data.senderId, data.content);
     this.publisher?.messageCreated(created);
     return created;
