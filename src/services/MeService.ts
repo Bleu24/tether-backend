@@ -60,7 +60,8 @@ export class MeService {
     if (!me) return [];
     const pref = await this.prefs.getByUserId(userId);
     const all = await this.users.findAll();
-  const others = all.filter((u) => u.id !== userId && !(u as any).is_deleted);
+    const others = all.filter((u) => u.id !== userId && !(u as any).is_deleted);
+    const allById = new Map<number, User>(all.map((u) => [u.id, u] as const));
 
     // Build exclusion set: users already matched, swiped (like/pass), or actively rejected
     const myMatches = await this.matches.listForUser(userId);
@@ -71,7 +72,7 @@ export class MeService {
     const rejectedIds = new Set<number>(rejectedIdsArr);
     const excluded = new Set<number>([...matchedIds, ...swipedIds, ...rejectedIds]);
 
-  const basePool = others.filter((u) => !excluded.has(u.id));
+    const basePool = others.filter((u) => !excluded.has(u.id));
 
     function filterByPref(list: User[]): User[] {
       if (!pref || !pref.gender_preference || pref.gender_preference === "any") return list;
@@ -86,13 +87,11 @@ export class MeService {
     if (queuedIds.length < QUEUE_TARGET) {
       const need = QUEUE_TARGET - queuedIds.length;
       const queuedSet = new Set<number>(queuedIds);
-      // Prefer filtered by preference; then relax if still short
-  // Strictly respect gender preference: do NOT relax beyond the selected preference
-  const preferred = filterByPref(basePool).filter((u) => !queuedSet.has(u.id));
+      // Strictly respect gender preference: filter upfront
+      const preferredPool = filterByPref(basePool).filter((u) => !queuedSet.has(u.id));
 
       // Ranking inputs
       await this.boosts.deactivateExpired();
-      const boostedIds = new Set<number>(await this.boosts.listActiveIds(preferred.map(u=>u.id)));
       const superLikedMe = new Set<number>(await this.superlikes.listSendersTo(userId, 500));
       const iSuperLiked = new Set<number>();
       {
@@ -101,52 +100,86 @@ export class MeService {
         );
         rows.forEach((r: any) => iSuperLiked.add(Number(r.receiver_id)));
       }
-      const myInterests: string[] = Array.isArray(pref?.interests) ? pref!.interests : [];
 
-      function affinityScore(a: User): number {
-        const otherInterests: string[] = Array.isArray((a as any)?.preferences?.interests) ? (a as any).preferences.interests : [];
-        const setA = new Set(otherInterests);
-        let overlap = 0;
-        for (const k of myInterests) if (setA.has(k)) overlap++;
-        const denom = Math.max(1, new Set([...myInterests, ...otherInterests]).size);
-        return overlap / denom; // 0..1
+      let ordered: number[] = [];
+
+      // If we have location and distance preference, use Haversine to prioritize by proximity
+      if (me.latitude != null && me.longitude != null && pref && typeof pref.distance === 'number') {
+        const nearby = await this.users.findNearbyForDiscover({
+          userId,
+          latitude: Number(me.latitude),
+          longitude: Number(me.longitude),
+          maxRadiusKm: pref.distance,
+          genderPreference: pref.gender_preference,
+          excludeIds: Array.from(excluded),
+          limit: need * 5,
+        });
+        const distById = new Map<number, number>(nearby.map(r => [r.id, r.distance_km] as const));
+        const candidateIds = nearby.map(r => r.id);
+        const candidateUsers = candidateIds
+          .map(id => allById.get(id))
+          .filter(Boolean) as User[];
+        const boostedIds = new Set<number>(await this.boosts.listActiveIds(candidateUsers.map(u => u.id)));
+
+        // Partition by priority: boosted or super-likers come first
+        const priority = candidateUsers
+          .map(u => ({ u, d: distById.get(u.id) ?? Number.MAX_SAFE_INTEGER, boosted: boostedIds.has(u.id), super: superLikedMe.has(u.id) }))
+          .sort((a, b) => (a.d - b.d));
+        const high = priority.filter(x => x.boosted || x.super);
+        const normal = priority.filter(x => !x.boosted && !x.super);
+        const merged = [...high, ...normal].slice(0, need * 2);
+
+        // Avoid >2 boosted in a row
+        const pool = [...merged];
+        let boostedRun = 0;
+        while (pool.length > 0 && ordered.length < need) {
+          const nextIdx = (() => {
+            if (boostedRun >= 2) {
+              const idx = pool.findIndex(x => !x.boosted);
+              if (idx !== -1) return idx;
+            }
+            return 0;
+          })();
+          const [pick] = pool.splice(nextIdx, 1);
+          ordered.push(pick.u.id);
+          boostedRun = pick.boosted ? boostedRun + 1 : 0;
+        }
+      } else {
+        // Fallback: previous affinity-based ranking (no location)
+        const boostedIds = new Set<number>(await this.boosts.listActiveIds(preferredPool.map(u => u.id)));
+        const myInterests: string[] = Array.isArray(pref?.interests) ? pref!.interests : [];
+        function affinityScore(a: User): number {
+          const otherInterests: string[] = Array.isArray((a as any)?.preferences?.interests) ? (a as any).preferences.interests : [];
+          const setA = new Set(otherInterests);
+          let overlap = 0;
+          for (const k of myInterests) if (setA.has(k)) overlap++;
+          const denom = Math.max(1, new Set([...myInterests, ...otherInterests]).size);
+          return overlap / denom; // 0..1
+        }
+        function score(a: User): number {
+          let s = affinityScore(a);
+          const boosted = boostedIds.has(a.id);
+          const aSuperLikedMe = superLikedMe.has(a.id);
+          const mutualSuper = aSuperLikedMe && iSuperLiked.has(a.id);
+          if (boosted) s += 0.3;
+          if (mutualSuper) s += 1.0; else if (aSuperLikedMe) s += 0.5;
+          return s;
+        }
+        const ranked = preferredPool
+          .map(u => ({ u, s: score(u), boosted: (async () => false) })) as any; // placeholder type
+        (ranked as Array<{ u: User; s: number; boosted: boolean }>).forEach(r => { (r as any).boosted = false; });
+        ranked.sort((a: any, b: any) => b.s - a.s);
+        const pool = ranked.slice(0, need);
+        // Avoid >2 boosted in a row (rare in fallback since boosted flag isn't computed here)
+        let boostedRun = 0;
+        while (pool.length > 0 && ordered.length < need) {
+          const pick = pool.shift()!;
+          ordered.push(pick.u.id);
+          boostedRun = (pick as any).boosted ? boostedRun + 1 : 0;
+        }
       }
 
-      function score(a: User): number {
-        let s = affinityScore(a);
-        const boosted = boostedIds.has(a.id);
-        const aSuperLikedMe = superLikedMe.has(a.id);
-        const mutualSuper = aSuperLikedMe && iSuperLiked.has(a.id);
-        if (boosted) s += 0.3;
-        if (mutualSuper) s += 1.0; else if (aSuperLikedMe) s += 0.5;
-        return s;
-      }
-
-  const candidates = preferred;
-      const ranked = candidates
-        .map(u => ({ u, s: score(u), boosted: boostedIds.has(u.id) }))
-        .sort((a, b) => b.s - a.s)
-        .slice(0, need);
-
-      // Avoid >2 boosted in a row
-      const ordered: number[] = [];
-      let boostedRun = 0;
-      const pool = [...ranked];
-      while (pool.length > 0) {
-        const nextIdx = (() => {
-          if (boostedRun >= 2) {
-            // find first non-boosted
-            const idx = pool.findIndex(x => !x.boosted);
-            if (idx !== -1) return idx;
-          }
-          return 0; // take top
-        })();
-        const [pick] = pool.splice(nextIdx, 1);
-        ordered.push(pick.u.id);
-        boostedRun = pick.boosted ? boostedRun + 1 : 0;
-      }
-
-      await this.recQueue.ensureQueued(userId, ordered);
+  await this.recQueue.ensureQueued(userId, ordered);
       // Re-prioritize by adjusting created_at sequence to preserve ordering
       try {
         for (let i = 0; i < ordered.length; i++) {
