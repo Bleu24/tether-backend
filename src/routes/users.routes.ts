@@ -6,6 +6,7 @@ import { DatabaseService } from "../services/DatabaseService";
 import { userPreferencesRouter } from "./user.preferences.routes";
 import { userSwipesRouter } from "./user.swipes.routes";
 import { userMatchesRouter } from "./user.matches.routes";
+import { userSubscriptionRouter } from "./user.subscription.routes";
 
 export function usersRouter(): Router {
     const router = Router();
@@ -27,6 +28,8 @@ export function usersRouter(): Router {
     router.use("/:userId/swipes", userSwipesRouter());
     // nested routes for a user's matches
     router.use("/:userId/matches", userMatchesRouter());
+    // nested route for a user's subscription
+    router.use("/:userId/subscription", userSubscriptionRouter());
 
     return router;
 }
