@@ -17,5 +17,6 @@ export type User = {
     photos?: string[] | null; // URLs
     subscription_tier?: SubscriptionTier | null;
     setup_complete?: boolean | null;
+    is_deleted?: boolean | null;
     preferences?: ProfilePreference | null;
 };
