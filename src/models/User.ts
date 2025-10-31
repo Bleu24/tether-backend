@@ -13,6 +13,9 @@ export type User = {
     age?: number | null; // computed from birthdate
     gender?: Gender | null;
     location?: string | null; // city or region string
+    latitude?: number | null;
+    longitude?: number | null;
+    last_seen?: string | null; // ISO datetime
     bio?: string | null;
     photos?: string[] | null; // URLs
     subscription_tier?: SubscriptionTier | null;
