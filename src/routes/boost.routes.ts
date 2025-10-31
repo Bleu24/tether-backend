@@ -8,6 +8,7 @@ export function boostRouter(): Router {
   const controller = new BoostController(new BoostService());
   router.use(requireUser);
   router.get("/can", controller.can);
+  router.get("/status", controller.status);
   router.get("/active", controller.activeFor);
   router.post("/", controller.activate);
   return router;
