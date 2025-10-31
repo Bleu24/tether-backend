@@ -44,20 +44,32 @@ export class WebSocketHub {
   }
 
   private attach(server: Server) {
-    // Accept upgrades on any path and validate manually so we can support both /ws and /api/ws behind proxies/rewrite rules
-    this.wss = new WebSocketServer({ server });
+    // Use manual upgrade handling for better compatibility with proxies (Render, etc.)
+    this.wss = new WebSocketServer({ noServer: true, clientTracking: true, perMessageDeflate: false });
     const db = DatabaseService.get();
     const matchRepo = new MatchRepository(db);
+
+    // Accept WS on both /ws and /api/ws (some deployments rewrite through /api)
+    const validPaths = new Set(["/ws", "/api/ws"]);
+    (server as any).on("upgrade", (req: IncomingMessage, socket: any, head: Buffer) => {
+      try {
+        const pathname = new URL(req.url ?? "", "http://localhost").pathname || "/";
+        if (!validPaths.has(pathname)) {
+          socket.destroy();
+          return;
+        }
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
+          this.wss.emit("connection", ws as unknown as WebSocket, req);
+        });
+      } catch {
+        try { socket.destroy(); } catch {}
+      }
+    });
 
   this.wss.on("connection", async (socket: WebSocket, req: IncomingMessage) => {
       // Heartbeat tracking to keep connections alive behind proxies
       (socket as any).isAlive = true;
       socket.on("pong", () => { (socket as any).isAlive = true; });
-      const pathname = new URL(req.url ?? "", "http://localhost").pathname || "/";
-      if (pathname !== "/ws" && pathname !== "/api/ws") {
-        try { socket.close(1008, "Invalid path"); } catch {}
-        return;
-      }
       const url = new URL(req.url ?? "", "http://localhost");
       // Prefer JWT token for auth, fallback to userId (legacy)
       let userId: number | null = null;
