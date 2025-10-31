@@ -1,4 +1,5 @@
 import { createPool } from "mysql2/promise";
+import fs from "fs";
 import { env } from "../config/env";
 import { DatabaseService } from "./DatabaseService";
 
@@ -16,6 +17,17 @@ export async function bootstrapDatabase() {
   } else {
     adminConfig.host = env.DB_HOST;
     adminConfig.port = env.DB_PORT;
+  }
+  // TLS for TiDB Cloud
+  if (env.DB_SSL || env.DB_SSL_CA) {
+    let ssl: any = { minVersion: "TLSv1.2" };
+    if (env.DB_SSL_CA) {
+      try { ssl.ca = fs.readFileSync(env.DB_SSL_CA, "utf8"); }
+      catch { ssl = { ...ssl, rejectUnauthorized: true }; }
+    } else {
+      ssl = { ...ssl, rejectUnauthorized: true };
+    }
+    adminConfig.ssl = ssl;
   }
   const adminPool = createPool(adminConfig);
   let dbExists = false;

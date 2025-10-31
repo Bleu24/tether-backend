@@ -1,4 +1,5 @@
 import { createPool, Pool } from "mysql2/promise";
+import fs from "fs";
 import { env } from "../config/env";
 import { IDatabase, QueryResult } from "../interfaces/IDatabase";
 
@@ -19,6 +20,22 @@ export class MySQLDatabase implements IDatabase {
         } else {
             baseConfig.host = env.DB_HOST;
             baseConfig.port = env.DB_PORT;
+        }
+
+        // Enable TLS for TiDB Cloud / Internet DBs when requested
+        if (env.DB_SSL || env.DB_SSL_CA) {
+            let ssl: any = { minVersion: "TLSv1.2" };
+            if (env.DB_SSL_CA) {
+                try {
+                    ssl.ca = fs.readFileSync(env.DB_SSL_CA, "utf8");
+                } catch (e) {
+                    // Fallback to default CA store if custom CA can't be read
+                    ssl = { ...ssl, rejectUnauthorized: true };
+                }
+            } else {
+                ssl = { ...ssl, rejectUnauthorized: true };
+            }
+            baseConfig.ssl = ssl;
         }
         this.#pool = createPool(baseConfig);
     }

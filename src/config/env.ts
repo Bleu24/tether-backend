@@ -7,6 +7,7 @@ import { z } from "zod";
 (() => {
     const here = path.resolve(__dirname, "../../.env"); // backend/.env
     const hereDev = path.resolve(__dirname, "../../.env.development"); // backend/.env.development
+    const hereProd = path.resolve(__dirname, "../../.env.production"); // backend/.env.production
     const hereDevWSL = path.resolve(__dirname, "../../.env.development.wsl");
     const hereDevWin = path.resolve(__dirname, "../../.env.development.windows");
     const repoRoot = path.resolve(__dirname, "../../../");
@@ -16,8 +17,9 @@ import { z } from "zod";
         // Prefer platform-specific dev env first
         ...(isWin ? [hereDevWin] : []),
         ...(isWSL ? [hereDevWSL] : []),
-        here,
-        hereDev,
+    here,
+    hereDev,
+    hereProd,
         // repo-root fallbacks
         ...(isWin ? [path.join(repoRoot, ".env.development.windows")] : []),
         ...(isWSL ? [path.join(repoRoot, ".env.development.wsl")] : []),
@@ -36,6 +38,8 @@ import { z } from "zod";
 const envSchema = z.object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().default(4000),
+    // Database connection (MySQL/TiDB)
+    DB_URL: z.string().optional(), // Optional MySQL URL (e.g. mysql://user:pass@host:4000/db)
     DB_HOST: z.string().default("localhost"),
     DB_PORT: z.coerce.number().default(3306),
     DB_USER: z.string(),
@@ -43,6 +47,9 @@ const envSchema = z.object({
     DB_NAME: z.string(),
     DB_CONN_LIMIT: z.coerce.number().default(10),
     DB_SOCKET: z.string().optional(),
+    // TLS/SSL options for TiDB Cloud & MySQL over the Internet
+    DB_SSL: z.coerce.boolean().optional().default(false),
+    DB_SSL_CA: z.string().optional(), // Path to CA PEM file if provided by provider
     CORS_ORIGIN: z.string().optional().default("*"),
     JWT_SECRET: z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579"),
     COOKIE_DOMAIN: z.string().optional(),
