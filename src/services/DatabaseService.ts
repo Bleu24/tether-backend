@@ -8,18 +8,29 @@ export class MySQLDatabase implements IDatabase {
 
     constructor() {
         const baseConfig: any = {
-            user: env.DB_USER,
-            password: env.DB_PASSWORD,
-            database: env.DB_NAME,
             connectionLimit: env.DB_CONN_LIMIT,
             waitForConnections: true,
             timezone: "+00:00",
         };
+
+        // Prefer DB_URL if provided
+        if (env.DB_URL) {
+            const u = new URL(env.DB_URL);
+            baseConfig.user = decodeURIComponent(u.username);
+            baseConfig.password = decodeURIComponent(u.password);
+            baseConfig.database = decodeURIComponent(u.pathname.replace(/^\//, ""));
+            baseConfig.host = u.hostname;
+            baseConfig.port = Number(u.port) || 3306;
+        } else {
+            baseConfig.user = env.DB_USER;
+            baseConfig.password = env.DB_PASSWORD;
+            baseConfig.database = env.DB_NAME;
+        }
         if (env.DB_SOCKET) {
             baseConfig.socketPath = env.DB_SOCKET;
         } else {
-            baseConfig.host = env.DB_HOST;
-            baseConfig.port = env.DB_PORT;
+            baseConfig.host = baseConfig.host ?? env.DB_HOST;
+            baseConfig.port = baseConfig.port ?? env.DB_PORT;
         }
 
         // Enable TLS for TiDB Cloud / Internet DBs when requested

@@ -6,17 +6,25 @@ import { DatabaseService } from "./DatabaseService";
 export async function bootstrapDatabase() {
   // First, verify credentials by connecting without a default database
   const adminConfig: any = {
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
     waitForConnections: true,
     connectionLimit: env.DB_CONN_LIMIT,
     timezone: "+00:00",
   };
+  if (env.DB_URL) {
+    const u = new URL(env.DB_URL);
+    adminConfig.user = decodeURIComponent(u.username);
+    adminConfig.password = decodeURIComponent(u.password);
+    adminConfig.host = u.hostname;
+    adminConfig.port = Number(u.port) || 3306;
+  } else {
+    adminConfig.user = env.DB_USER;
+    adminConfig.password = env.DB_PASSWORD;
+  }
   if (env.DB_SOCKET) {
     adminConfig.socketPath = env.DB_SOCKET;
   } else {
-    adminConfig.host = env.DB_HOST;
-    adminConfig.port = env.DB_PORT;
+    adminConfig.host = adminConfig.host ?? env.DB_HOST;
+    adminConfig.port = adminConfig.port ?? env.DB_PORT;
   }
   // TLS for TiDB Cloud
   if (env.DB_SSL || env.DB_SSL_CA) {
