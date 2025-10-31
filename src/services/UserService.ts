@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { IUserRepository } from "../repositories/UserRepository";
 import { User } from "../models/User";
+import { DatabaseService } from "./DatabaseService";
+import { SoftDeletedUserRepository } from "../repositories/SoftDeletedUserRepository";
+import { ProfilePreferenceRepository } from "../repositories/ProfilePreferenceRepository";
 
 const BaseUserDTO = z.object({
     name: z.string().min(1),
@@ -45,5 +48,39 @@ export class UserService {
     async update(id: number, input: unknown): Promise<User> {
         const dto = UpdateUserDTO.parse(input);
         return this.users.updateProfile(id, dto);
+    }
+
+    /**
+     * Soft-delete: snapshot user and preferences into soft_deleted_users, then mark user as deleted.
+     */
+    async softDelete(id: number): Promise<void> {
+        const db = DatabaseService.get();
+        const sdu = new SoftDeletedUserRepository(db);
+        const prefsRepo = new ProfilePreferenceRepository(db);
+        const user = await this.users.findById(id);
+        if (!user) throw new Error("User not found");
+        const prefs = await prefsRepo.getByUserId(id);
+        await sdu.insertOrUpdate({
+            source_user_id: id,
+            email: user.email,
+            name: user.name,
+            birthdate: user.birthdate ?? null,
+            gender: (user.gender as any) ?? null,
+            location: user.location ?? null,
+            bio: user.bio ?? null,
+            photos: user.photos ?? [],
+            preferences: prefs ? {
+                min_age: prefs.min_age,
+                max_age: prefs.max_age,
+                distance: prefs.distance,
+                gender_preference: prefs.gender_preference,
+                interests: prefs.interests,
+            } : null,
+            subscription_tier: user.subscription_tier ?? null,
+        });
+        // Mark user as deleted and optionally anonymize
+        await db.execute(`UPDATE users SET is_deleted = 1, name = 'Deleted User' WHERE id = ?`, [id]);
+        // Optionally clear photos for privacy
+        try { await db.execute(`UPDATE users SET photos = JSON_ARRAY() WHERE id = ?`, [id]); } catch {}
     }
 }
