@@ -10,11 +10,13 @@ import { jwtAuthenticate } from "./middleware/jwt";
 export function createApp() {
     const app = express();
     const logger = pino({ name: "tether-backend", level: env.NODE_ENV === "development" ? "debug" : "info" });
+    // Trust reverse proxies (needed for secure cookies and protocol detection)
+    app.set("trust proxy", 1);
 
     app.use(cors({
         origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","),
         credentials: true,
-        allowedHeaders: ["Content-Type", "X-User-Id"],
+        allowedHeaders: ["Content-Type", "X-User-Id", "Authorization"],
     }));
     app.use(express.json());
     // JWT auth: attaches res.locals.userId if cookie is valid
