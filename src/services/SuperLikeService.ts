@@ -6,6 +6,7 @@ import { UserRepository } from "../repositories/UserRepository";
 import { WebSocketHub } from "../realtime/WebSocketHub";
 import { SwipeRepository } from "../repositories/SwipeRepository";
 import { SwipeService } from "./SwipeService";
+import { ResourceCreditRepository } from "../repositories/ResourceCreditRepository";
 
 const SuperLikeDTO = z.object({
   senderId: z.number().int().positive(),
@@ -16,24 +17,28 @@ export class SuperLikeService {
   private repo = new SuperLikeRepository(DatabaseService.get());
   private rec = new RecommendationRepository(DatabaseService.get());
   private users = new UserRepository(DatabaseService.get());
+  private credits = new ResourceCreditRepository(DatabaseService.get());
 
-  async canUseSuperLike(userId: number): Promise<{ canUse: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "daily" | "unlimited" }>{
+  async canUseSuperLike(userId: number): Promise<{ canUse: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "daily" | "unlimited" }> {
     const user = await this.users.findById(userId);
     if (!user) return { canUse: false };
+    const tier = user.subscription_tier || 'free';
     // Premium: unlimited
-    if (user.subscription_tier === 'premium') return { canUse: true, remaining: null, window: "unlimited" };
+    if (tier === 'premium') return { canUse: true, remaining: null, window: "unlimited" };
+    const base = tier === 'gold' ? 5 : 1; // free/plus:1, gold:5
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
     const count = await this.repo.countSince(userId, since);
-    const remaining = Math.max(0, 1 - count);
-    if (count > 0) {
-      // Next available in 24h from last
+    const credit = await this.credits.sumActive(userId, 'super_like');
+    const remaining = Math.max(0, base + credit - count);
+    // Only expose nextAvailableAt if the user has exhausted their quota for the window
+    if (remaining <= 0) {
       const { rows } = await DatabaseService.get().query<any>(
         `SELECT created_at FROM super_likes WHERE sender_id = ? ORDER BY created_at DESC LIMIT 1`,
         [userId]
       );
       const last = rows[0]?.created_at ? new Date(rows[0].created_at) : null;
       const next = last ? new Date(last.getTime() + 24*60*60*1000) : new Date(Date.now() + 24*60*60*1000);
-      return { canUse: false, nextAvailableAt: next.toISOString(), remaining, window: "daily" };
+      return { canUse: false, nextAvailableAt: next.toISOString(), remaining: 0, window: "daily" };
     }
     return { canUse: true, remaining, window: "daily" };
   }
