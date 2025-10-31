@@ -9,6 +9,21 @@ const MatchRepository_1 = require("../repositories/MatchRepository");
 const DatabaseService_1 = require("../services/DatabaseService");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const env_1 = require("../config/env");
+function parseCookie(header) {
+    const out = {};
+    if (!header)
+        return out;
+    const raw = Array.isArray(header) ? header.join("; ") : header;
+    raw.split(";").forEach((p) => {
+        const idx = p.indexOf("=");
+        if (idx > -1) {
+            const k = p.slice(0, idx).trim();
+            const v = decodeURIComponent(p.slice(idx + 1).trim());
+            out[k] = v;
+        }
+    });
+    return out;
+}
 class WebSocketHub {
     constructor() {
         this.clients = new Map();
@@ -35,7 +50,14 @@ class WebSocketHub {
             const url = new URL(req.url ?? "", "http://localhost");
             // Prefer JWT token for auth, fallback to userId (legacy)
             let userId = null;
-            const token = url.searchParams.get("token");
+            let token = url.searchParams.get("token");
+            if (!token && req.headers?.authorization?.startsWith("Bearer ")) {
+                token = req.headers.authorization.slice("Bearer ".length);
+            }
+            if (!token) {
+                const cookies = parseCookie(req.headers.cookie);
+                token = cookies["auth_token"]; // same cookie name used by HTTP auth
+            }
             if (token) {
                 try {
                     const payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_SECRET);

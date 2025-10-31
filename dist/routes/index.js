@@ -15,6 +15,7 @@ const rejections_routes_1 = require("./rejections.routes");
 const superlike_routes_1 = require("./superlike.routes");
 const boost_routes_1 = require("./boost.routes");
 const location_routes_1 = require("./location.routes");
+const files_routes_1 = require("./files.routes");
 function apiRouter() {
     const router = (0, express_1.Router)();
     router.use("/health", (0, health_routes_1.healthRouter)());
@@ -28,6 +29,8 @@ function apiRouter() {
     router.use("/superlike", (0, superlike_routes_1.superLikeRouter)());
     router.use("/boost", (0, boost_routes_1.boostRouter)());
     router.use("/update-location", (0, location_routes_1.locationRouter)());
+    // Proxy for R2/S3 files when public URL is not available (avoids CORS)
+    router.use("/files", (0, files_routes_1.filesRouter)());
     router.use("/me", (0, me_routes_1.meRouter)());
     router.use("/users", (0, users_routes_1.usersRouter)());
     return router;

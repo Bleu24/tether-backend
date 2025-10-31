@@ -12,6 +12,7 @@ import { rejectionsRouter } from "./rejections.routes";
 import { superLikeRouter } from "./superlike.routes";
 import { boostRouter } from "./boost.routes";
 import { locationRouter } from "./location.routes";
+import { filesRouter } from "./files.routes";
 
 export function apiRouter(): Router {
     const router = Router();
@@ -26,6 +27,8 @@ export function apiRouter(): Router {
     router.use("/superlike", superLikeRouter());
     router.use("/boost", boostRouter());
     router.use("/update-location", locationRouter());
+    // Proxy for R2/S3 files when public URL is not available (avoids CORS)
+    router.use("/files", filesRouter());
     router.use("/me", meRouter());
     router.use("/users", usersRouter());
     return router;

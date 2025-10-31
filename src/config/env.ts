@@ -60,6 +60,8 @@ const envSchemaCore = z.object({
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     S3_FORCE_PATH_STYLE: z.coerce.boolean().optional().default(false),
+    // If true or if S3_PUBLIC_BASE_URL is not set, backend will proxy file reads at /api/files/:key
+    S3_PROXY: z.coerce.boolean().optional().default(true),
     S3_PUBLIC_BASE_URL: z.string().optional(), // e.g. https://cdn.example.com or https://<bucket>.<region>.amazonaws.com
 });
 

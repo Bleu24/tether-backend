@@ -68,18 +68,26 @@ function uploadsRouter() {
                     Body: f.buffer,
                     ContentType: f.mimetype || "application/octet-stream",
                 }));
-                // Determine public URL base
-                let base = env_1.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, "");
-                if (!base && env_1.env.S3_ENDPOINT) {
+                // Determine URL to return
+                let url;
+                if (env_1.env.S3_PUBLIC_BASE_URL && env_1.env.S3_PROXY === false) {
+                    const base = env_1.env.S3_PUBLIC_BASE_URL.replace(/\/$/, "");
+                    url = `${base}/${key}`;
+                }
+                else if (env_1.env.S3_PROXY || !env_1.env.S3_PUBLIC_BASE_URL) {
+                    // Serve via backend proxy to avoid CORS/public bucket requirement
+                    url = `/api/files/${encodeURIComponent(key)}`;
+                }
+                else {
+                    // Best-effort direct R2 URL
                     try {
                         const host = new URL(env_1.env.S3_ENDPOINT).host;
-                        if (host.endsWith("r2.cloudflarestorage.com")) {
-                            base = `https://${env_1.env.S3_BUCKET}.${host}`;
-                        }
+                        url = `https://${env_1.env.S3_BUCKET}.${host}/${key}`;
                     }
-                    catch { }
+                    catch {
+                        url = `/${key}`;
+                    }
                 }
-                const url = base ? `${base}/${key}` : `/${key}`; // fall back to relative; caller can prefix later
                 urls.push(url);
             }
             return res.json({ urls });
