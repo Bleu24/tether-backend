@@ -43,6 +43,12 @@ export class MeController extends BaseController {
     return this.ok(res, users);
   });
 
+  superLikers = this.handler(async (_req: Request, res: Response) => {
+    const userId = res.locals.userId as number;
+    const users = await this.service.getSuperLikers(userId);
+    return this.ok(res, users);
+  });
+
   // Pending match celebrations and mark-as-seen can be delegated through MeService
   pendingMatchCelebrations = this.handler(async (_req: Request, res: Response) => {
     const userId = res.locals.userId as number;
