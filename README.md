@@ -183,6 +183,7 @@ Delete semantics:
  - POST `/api/messages/:id/seen` – mark a message seen (body or query: userId)
  - GET `/api/me/matches/pending-celebrations` – list matches where the current user hasn't seen the celebration yet
  - POST `/api/me/matches/:id/celebration-seen` – mark the celebration as seen for the current user on a specific match
+- POST `/api/update-location` – update current user's geolocation (body: `{ userId, latitude, longitude }`) and set `last_seen`
 - GET `/api/users/:id` – get a single user (includes preferences)
 - PUT `/api/users/:id` – update user profile fields (name, gender, location, bio, photos, subscription)
 - GET `/api/users/:userId/preferences` – get profile match preferences
@@ -275,4 +276,13 @@ If you created the database before this change, add celebration flags to `matche
 ```sql
 ALTER TABLE matches ADD COLUMN celebration_shown_to_a TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active;
 ALTER TABLE matches ADD COLUMN celebration_shown_to_b TINYINT(1) NOT NULL DEFAULT 0 AFTER celebration_shown_to_a;
+
+If you created the database before geolocation was added, add latitude/longitude/last_seen to `users`:
+
+```sql
+ALTER TABLE users
+  ADD COLUMN latitude DECIMAL(10,7) NULL AFTER location,
+  ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude,
+  ADD COLUMN last_seen DATETIME NULL AFTER longitude;
+```
 ```
