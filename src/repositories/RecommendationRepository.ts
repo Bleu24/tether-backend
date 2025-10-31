@@ -31,4 +31,25 @@ export class RecommendationRepository {
       [userId, targetId]
     );
   }
+
+  /**
+   * Bump a queued target to the front by setting its created_at far in the past.
+   */
+  async prioritize(userId: number, targetId: number): Promise<void> {
+    await this.db.execute(
+      `UPDATE recommendation_queue SET created_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 DAY)
+       WHERE user_id = ? AND target_id = ? AND status = 'queued'`,
+      [userId, targetId]
+    );
+  }
+
+  /**
+   * Clear all queued/consumed recommendations for a user. Useful when preferences change.
+   */
+  async clearForUser(userId: number): Promise<void> {
+    await this.db.execute(
+      `DELETE FROM recommendation_queue WHERE user_id = ?`,
+      [userId]
+    );
+  }
 }
