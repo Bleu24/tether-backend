@@ -7,6 +7,21 @@ import { env } from "../config/env";
 
 type ClientInfo = { userId: number; subscriptions: Set<number> };
 
+function parseCookie(header?: string | string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  const raw = Array.isArray(header) ? header.join("; ") : header;
+  raw.split(";").forEach((p) => {
+    const idx = p.indexOf("=");
+    if (idx > -1) {
+      const k = p.slice(0, idx).trim();
+      const v = decodeURIComponent(p.slice(idx + 1).trim());
+      out[k] = v;
+    }
+  });
+  return out;
+}
+
 export class WebSocketHub {
   private static _instance: WebSocketHub | null = null;
   private wss!: WebSocketServer;
@@ -36,7 +51,14 @@ export class WebSocketHub {
       const url = new URL(req.url ?? "", "http://localhost");
       // Prefer JWT token for auth, fallback to userId (legacy)
       let userId: number | null = null;
-      const token = url.searchParams.get("token");
+      let token = url.searchParams.get("token");
+      if (!token && req.headers?.authorization?.startsWith("Bearer ")) {
+        token = req.headers.authorization.slice("Bearer ".length);
+      }
+      if (!token) {
+        const cookies = parseCookie(req.headers.cookie);
+        token = cookies["auth_token"]; // same cookie name used by HTTP auth
+      }
       if (token) {
         try {
           const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
