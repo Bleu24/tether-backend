@@ -21,6 +21,12 @@ export class BoostController extends BaseController {
     return this.created(res, result);
   });
 
+  status = this.handler(async (_req: Request, res: Response) => {
+    const userId = res.locals.userId as number;
+    const result = await this.service.getStatus(userId);
+    return this.ok(res, result);
+  });
+
   // Utility to query active boosts for a list of user ids
   activeFor = this.handler(async (req: Request, res: Response) => {
     const idsParam = String(req.query.ids || "");
