@@ -29,4 +29,20 @@ export class UserController extends BaseController {
         const user = await this.service.update(id, req.body);
         return this.ok(res, user);
     });
+
+    delete = this.handler(async (req: Request, res: Response) => {
+        const id = Number(req.params.id);
+        const requester = (res.locals as any)?.userId as number | undefined;
+        if (!requester || requester !== id) {
+            return this.fail(res, "Forbidden", 403);
+        }
+        await this.service.softDelete(id);
+        // Optional: clear auth for the deleter if deleting self; enforcement can be in route middleware
+        try {
+            // static import to satisfy NodeNext module resolution
+            const { clearAuthCookie } = require("../middleware/jwt");
+            if (typeof clearAuthCookie === "function") clearAuthCookie(res);
+        } catch {}
+        return this.ok(res, { id, deleted: true });
+    });
 }
