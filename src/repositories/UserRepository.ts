@@ -16,7 +16,7 @@ export class UserRepository implements IUserRepository {
     async findAll(): Promise<User[]> {
         try {
             const { rows } = await this.db.query<any>(
-    `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete,
+    `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete, u.is_deleted,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -31,7 +31,7 @@ export class UserRepository implements IUserRepository {
     async findById(id: number): Promise<User | null> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete,
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete, u.is_deleted,
                         pp.user_id as pref_user_id, pp.min_age, pp.max_age, pp.distance, pp.gender_preference, pp.interests, pp.created_at as pref_created_at, pp.updated_at as pref_updated_at
                  FROM users u
                  LEFT JOIN profile_preferences pp ON pp.user_id = u.id
@@ -49,7 +49,7 @@ export class UserRepository implements IUserRepository {
     async findByEmail(email: string): Promise<User | null> {
         try {
             const { rows } = await this.db.query<any>(
-                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete
+                `SELECT u.id, u.name, u.email, u.created_at, u.birthdate, u.gender, u.location, u.bio, u.photos, u.subscription_tier, u.setup_complete, u.is_deleted
                  FROM users u WHERE u.email = ? LIMIT 1`,
                 [email]
             );
@@ -142,6 +142,7 @@ function mapUserRow(row: any): User {
         photos: photos ?? [],
         subscription_tier: row.subscription_tier ?? "free",
         setup_complete: typeof row.setup_complete === 'number' ? row.setup_complete === 1 : !!row.setup_complete,
+        is_deleted: typeof row.is_deleted === 'number' ? row.is_deleted === 1 : !!row.is_deleted,
         preferences: pref,
     } as User;
 }
