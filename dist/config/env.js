@@ -59,8 +59,11 @@ const envSchemaCore = zod_1.z.object({
     COOKIE_SAMESITE: zod_1.z.enum(["Lax", "None", "Strict"]).optional().default("Lax"),
     // S3/R2 storage (optional)
     S3_BUCKET: zod_1.z.string().optional(),
-    S3_REGION: zod_1.z.string().optional(),
-    S3_ENDPOINT: zod_1.z.string().optional(), // for R2 or custom endpoints
+    S3_REGION: zod_1.z.string().optional().default("auto"),
+    S3_ENDPOINT: zod_1.z.string().optional(), // for R2 or custom endpoints (e.g., https://<account>.r2.cloudflarestorage.com)
+    S3_ACCESS_KEY_ID: zod_1.z.string().optional(),
+    S3_SECRET_ACCESS_KEY: zod_1.z.string().optional(),
+    S3_FORCE_PATH_STYLE: zod_1.z.coerce.boolean().optional().default(false),
     S3_PUBLIC_BASE_URL: zod_1.z.string().optional(), // e.g. https://cdn.example.com or https://<bucket>.<region>.amazonaws.com
 });
 // Allow either full DB_URL or discrete fields (DB_USER + DB_NAME at minimum)

@@ -6,7 +6,7 @@ import { requireUser } from "../middleware/auth";
 import { env } from "../config/env";
 
 // Optional S3-compatible storage
-let useS3 = Boolean(env.S3_BUCKET && (env.S3_REGION || env.S3_ENDPOINT));
+let useS3 = Boolean(env.S3_BUCKET && env.S3_ENDPOINT && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY);
 let S3ClientCtor: any = null;
 let PutObjectCommandCtor: any = null;
 if (useS3) {
@@ -48,8 +48,10 @@ export function uploadsRouter(): Router {
     const files = (req.files as any[]) || [];
     if (useS3 && S3ClientCtor && PutObjectCommandCtor) {
       const client = new S3ClientCtor({
-        region: env.S3_REGION,
+        region: env.S3_REGION || "auto",
         endpoint: env.S3_ENDPOINT,
+        forcePathStyle: env.S3_FORCE_PATH_STYLE,
+        credentials: { accessKeyId: env.S3_ACCESS_KEY_ID!, secretAccessKey: env.S3_SECRET_ACCESS_KEY! },
       });
       const urls: string[] = [];
       for (const f of files) {
@@ -61,10 +63,18 @@ export function uploadsRouter(): Router {
           Key: key,
           Body: f.buffer,
           ContentType: f.mimetype || "application/octet-stream",
-          ACL: "public-read",
         }));
-        const base = env.S3_PUBLIC_BASE_URL?.replace(/\/$/, "");
-        const url = base ? `${base}/${key}` : `https://${env.S3_BUCKET}.s3.${env.S3_REGION}.amazonaws.com/${key}`;
+        // Determine public URL base
+        let base = env.S3_PUBLIC_BASE_URL?.replace(/\/$/, "");
+        if (!base && env.S3_ENDPOINT) {
+          try {
+            const host = new URL(env.S3_ENDPOINT).host;
+            if (host.endsWith("r2.cloudflarestorage.com")) {
+              base = `https://${env.S3_BUCKET}.${host}`;
+            }
+          } catch {}
+        }
+        const url = base ? `${base}/${key}` : `/${key}`; // fall back to relative; caller can prefix later
         urls.push(url);
       }
       return res.json({ urls });

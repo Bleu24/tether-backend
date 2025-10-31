@@ -11,7 +11,7 @@ const fs_1 = __importDefault(require("fs"));
 const auth_1 = require("../middleware/auth");
 const env_1 = require("../config/env");
 // Optional S3-compatible storage
-let useS3 = Boolean(env_1.env.S3_BUCKET && (env_1.env.S3_REGION || env_1.env.S3_ENDPOINT));
+let useS3 = Boolean(env_1.env.S3_BUCKET && env_1.env.S3_ENDPOINT && env_1.env.S3_ACCESS_KEY_ID && env_1.env.S3_SECRET_ACCESS_KEY);
 let S3ClientCtor = null;
 let PutObjectCommandCtor = null;
 if (useS3) {
@@ -52,8 +52,10 @@ function uploadsRouter() {
         const files = req.files || [];
         if (useS3 && S3ClientCtor && PutObjectCommandCtor) {
             const client = new S3ClientCtor({
-                region: env_1.env.S3_REGION,
+                region: env_1.env.S3_REGION || "auto",
                 endpoint: env_1.env.S3_ENDPOINT,
+                forcePathStyle: env_1.env.S3_FORCE_PATH_STYLE,
+                credentials: { accessKeyId: env_1.env.S3_ACCESS_KEY_ID, secretAccessKey: env_1.env.S3_SECRET_ACCESS_KEY },
             });
             const urls = [];
             for (const f of files) {
@@ -65,10 +67,19 @@ function uploadsRouter() {
                     Key: key,
                     Body: f.buffer,
                     ContentType: f.mimetype || "application/octet-stream",
-                    ACL: "public-read",
                 }));
-                const base = env_1.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, "");
-                const url = base ? `${base}/${key}` : `https://${env_1.env.S3_BUCKET}.s3.${env_1.env.S3_REGION}.amazonaws.com/${key}`;
+                // Determine public URL base
+                let base = env_1.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, "");
+                if (!base && env_1.env.S3_ENDPOINT) {
+                    try {
+                        const host = new URL(env_1.env.S3_ENDPOINT).host;
+                        if (host.endsWith("r2.cloudflarestorage.com")) {
+                            base = `https://${env_1.env.S3_BUCKET}.${host}`;
+                        }
+                    }
+                    catch { }
+                }
+                const url = base ? `${base}/${key}` : `/${key}`; // fall back to relative; caller can prefix later
                 urls.push(url);
             }
             return res.json({ urls });
