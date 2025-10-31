@@ -9,7 +9,7 @@ export class BoostService {
   private repo = new BoostRepository(DatabaseService.get());
   private users = new UserRepository(DatabaseService.get());
 
-  async canActivateBoost(userId: number): Promise<{ canActivate: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "weekly" | "cooldown" | "unlimited" | "daily" }> {
+  async canActivateBoost(userId: number): Promise<{ canActivate: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "weekly" | "cooldown" | "unlimited" | "daily" | "windowed" }> {
     await this.repo.deactivateExpired();
     const user = await this.users.findById(userId);
     if (!user) return { canActivate: false };
@@ -26,16 +26,31 @@ export class BoostService {
       return { canActivate: true, remaining: null, window: "cooldown" };
     }
     if (tier === 'gold') {
-      // Gold: up to 2 boosts per calendar day
+      // Gold: 1 boost per fixed window; windows reset at 12:00 and 18:00 server local time
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-      const since = startOfDay.toISOString().slice(0, 19).replace('T', ' ');
-      const count = await this.repo.countSince(userId, since);
-      if (count >= 2) {
-        const next = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-        return { canActivate: false, nextAvailableAt: next.toISOString(), remaining: 0, window: "daily" };
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const d = now.getDate();
+      const noon = new Date(y, m, d, 12, 0, 0);
+      const six = new Date(y, m, d, 18, 0, 0);
+      let windowStart: Date;
+      let nextReset: Date;
+      if (now < noon) {
+        windowStart = new Date(y, m, d - 1, 18, 0, 0);
+        nextReset = noon;
+      } else if (now < six) {
+        windowStart = noon;
+        nextReset = six;
+      } else {
+        windowStart = six;
+        nextReset = new Date(y, m, d + 1, 12, 0, 0);
       }
-      return { canActivate: true, remaining: 2 - count, window: "daily" };
+      const since = windowStart.toISOString().slice(0, 19).replace('T', ' ');
+      const count = await this.repo.countSince(userId, since);
+      if (count >= 1) {
+        return { canActivate: false, nextAvailableAt: nextReset.toISOString(), remaining: 0, window: "windowed" };
+      }
+      return { canActivate: true, remaining: 1, window: "windowed" };
     }
     // Free/Plus: no boosts
     return { canActivate: false, remaining: 0 } as any;
@@ -49,7 +64,7 @@ export class BoostService {
     return { ok: true, start_time: boost.start_time, end_time: boost.end_time };
   }
 
-  async getStatus(userId: number): Promise<{ isActive: boolean; endsAt?: string; canActivate: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "weekly" | "cooldown" | "unlimited" | "daily" }>{
+  async getStatus(userId: number): Promise<{ isActive: boolean; endsAt?: string; canActivate: boolean; nextAvailableAt?: string; remaining?: number | null; window?: "weekly" | "cooldown" | "unlimited" | "daily" | "windowed" }> {
     await this.repo.deactivateExpired();
     const active = await this.repo.hasActive(userId);
     if (active) {
