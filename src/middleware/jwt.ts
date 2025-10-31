@@ -36,12 +36,30 @@ export function jwtAuthenticate(req: Request, res: Response, next: NextFunction)
 
 export function setAuthCookie(res: Response, userId: number) {
   const token = jwt.sign({ sub: String(userId) }, env.JWT_SECRET, { expiresIn: "30d" });
-  // Basic cookie flags; adjust SameSite/Secure for production
-  res.setHeader("Set-Cookie", `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
+  // Cookie flags for production readiness
+  const attrs = [
+    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${60 * 60 * 24 * 30}`,
+  ];
+  if (env.NODE_ENV === "production") attrs.push("Secure");
+  if (env.COOKIE_DOMAIN) attrs.push(`Domain=${env.COOKIE_DOMAIN}`);
+  res.setHeader("Set-Cookie", attrs.join("; "));
 }
 
 export function clearAuthCookie(res: Response) {
-  res.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const attrs = [
+    `${COOKIE_NAME}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (env.NODE_ENV === "production") attrs.push("Secure");
+  if (env.COOKIE_DOMAIN) attrs.push(`Domain=${env.COOKIE_DOMAIN}`);
+  res.setHeader("Set-Cookie", attrs.join("; "));
 }
 
 export function requireUser(req: Request, res: Response, next: NextFunction) {
