@@ -37,11 +37,12 @@ export function jwtAuthenticate(req: Request, res: Response, next: NextFunction)
 export function setAuthCookie(res: Response, userId: number) {
   const token = jwt.sign({ sub: String(userId) }, env.JWT_SECRET, { expiresIn: "30d" });
   // Cookie flags for production readiness
+  const sameSite = env.COOKIE_SAMESITE || (env.NODE_ENV === "production" ? "None" : "Lax");
   const attrs = [
     `${COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSite}`,
     `Max-Age=${60 * 60 * 24 * 30}`,
   ];
   if (env.NODE_ENV === "production") attrs.push("Secure");
@@ -50,11 +51,12 @@ export function setAuthCookie(res: Response, userId: number) {
 }
 
 export function clearAuthCookie(res: Response) {
+  const sameSite = env.COOKIE_SAMESITE || (env.NODE_ENV === "production" ? "None" : "Lax");
   const attrs = [
     `${COOKIE_NAME}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSite}`,
     "Max-Age=0",
   ];
   if (env.NODE_ENV === "production") attrs.push("Secure");

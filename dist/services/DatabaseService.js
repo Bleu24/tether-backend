@@ -23,19 +23,30 @@ class MySQLDatabase {
     constructor() {
         _MySQLDatabase_pool.set(this, void 0);
         const baseConfig = {
-            user: env_1.env.DB_USER,
-            password: env_1.env.DB_PASSWORD,
-            database: env_1.env.DB_NAME,
             connectionLimit: env_1.env.DB_CONN_LIMIT,
             waitForConnections: true,
             timezone: "+00:00",
         };
+        // Prefer DB_URL if provided
+        if (env_1.env.DB_URL) {
+            const u = new URL(env_1.env.DB_URL);
+            baseConfig.user = decodeURIComponent(u.username);
+            baseConfig.password = decodeURIComponent(u.password);
+            baseConfig.database = decodeURIComponent(u.pathname.replace(/^\//, ""));
+            baseConfig.host = u.hostname;
+            baseConfig.port = Number(u.port) || 3306;
+        }
+        else {
+            baseConfig.user = env_1.env.DB_USER;
+            baseConfig.password = env_1.env.DB_PASSWORD;
+            baseConfig.database = env_1.env.DB_NAME;
+        }
         if (env_1.env.DB_SOCKET) {
             baseConfig.socketPath = env_1.env.DB_SOCKET;
         }
         else {
-            baseConfig.host = env_1.env.DB_HOST;
-            baseConfig.port = env_1.env.DB_PORT;
+            baseConfig.host = baseConfig.host ?? env_1.env.DB_HOST;
+            baseConfig.port = baseConfig.port ?? env_1.env.DB_PORT;
         }
         // Enable TLS for TiDB Cloud / Internet DBs when requested
         if (env_1.env.DB_SSL || env_1.env.DB_SSL_CA) {

@@ -11,18 +11,27 @@ const DatabaseService_1 = require("./DatabaseService");
 async function bootstrapDatabase() {
     // First, verify credentials by connecting without a default database
     const adminConfig = {
-        user: env_1.env.DB_USER,
-        password: env_1.env.DB_PASSWORD,
         waitForConnections: true,
         connectionLimit: env_1.env.DB_CONN_LIMIT,
         timezone: "+00:00",
     };
+    if (env_1.env.DB_URL) {
+        const u = new URL(env_1.env.DB_URL);
+        adminConfig.user = decodeURIComponent(u.username);
+        adminConfig.password = decodeURIComponent(u.password);
+        adminConfig.host = u.hostname;
+        adminConfig.port = Number(u.port) || 3306;
+    }
+    else {
+        adminConfig.user = env_1.env.DB_USER;
+        adminConfig.password = env_1.env.DB_PASSWORD;
+    }
     if (env_1.env.DB_SOCKET) {
         adminConfig.socketPath = env_1.env.DB_SOCKET;
     }
     else {
-        adminConfig.host = env_1.env.DB_HOST;
-        adminConfig.port = env_1.env.DB_PORT;
+        adminConfig.host = adminConfig.host ?? env_1.env.DB_HOST;
+        adminConfig.port = adminConfig.port ?? env_1.env.DB_PORT;
     }
     // TLS for TiDB Cloud
     if (env_1.env.DB_SSL || env_1.env.DB_SSL_CA) {

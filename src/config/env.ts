@@ -7,7 +7,6 @@ import { z } from "zod";
 (() => {
     const here = path.resolve(__dirname, "../../.env"); // backend/.env
     const hereDev = path.resolve(__dirname, "../../.env.development"); // backend/.env.development
-    const hereProd = path.resolve(__dirname, "../../.env.production"); // backend/.env.production
     const hereDevWSL = path.resolve(__dirname, "../../.env.development.wsl");
     const hereDevWin = path.resolve(__dirname, "../../.env.development.windows");
     const repoRoot = path.resolve(__dirname, "../../../");
@@ -17,9 +16,8 @@ import { z } from "zod";
         // Prefer platform-specific dev env first
         ...(isWin ? [hereDevWin] : []),
         ...(isWSL ? [hereDevWSL] : []),
-    here,
-    hereDev,
-    hereProd,
+        here,
+        hereDev,
         // repo-root fallbacks
         ...(isWin ? [path.join(repoRoot, ".env.development.windows")] : []),
         ...(isWSL ? [path.join(repoRoot, ".env.development.wsl")] : []),
@@ -53,6 +51,8 @@ const envSchemaCore = z.object({
     CORS_ORIGIN: z.string().optional().default("*"),
     JWT_SECRET: z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579"),
     COOKIE_DOMAIN: z.string().optional(),
+    // Cookie SameSite behavior. Use "None" for cross-site (frontend and backend on different domains)
+    COOKIE_SAMESITE: z.enum(["Lax", "None", "Strict"]).optional().default("Lax"),
     // S3/R2 storage (optional)
     S3_BUCKET: z.string().optional(),
     S3_REGION: z.string().optional(),

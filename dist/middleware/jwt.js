@@ -44,11 +44,12 @@ function jwtAuthenticate(req, res, next) {
 function setAuthCookie(res, userId) {
     const token = jsonwebtoken_1.default.sign({ sub: String(userId) }, env_1.env.JWT_SECRET, { expiresIn: "30d" });
     // Cookie flags for production readiness
+    const sameSite = env_1.env.COOKIE_SAMESITE || (env_1.env.NODE_ENV === "production" ? "None" : "Lax");
     const attrs = [
         `${COOKIE_NAME}=${encodeURIComponent(token)}`,
         "Path=/",
         "HttpOnly",
-        "SameSite=Lax",
+        `SameSite=${sameSite}`,
         `Max-Age=${60 * 60 * 24 * 30}`,
     ];
     if (env_1.env.NODE_ENV === "production")
@@ -58,11 +59,12 @@ function setAuthCookie(res, userId) {
     res.setHeader("Set-Cookie", attrs.join("; "));
 }
 function clearAuthCookie(res) {
+    const sameSite = env_1.env.COOKIE_SAMESITE || (env_1.env.NODE_ENV === "production" ? "None" : "Lax");
     const attrs = [
         `${COOKIE_NAME}=`,
         "Path=/",
         "HttpOnly",
-        "SameSite=Lax",
+        `SameSite=${sameSite}`,
         "Max-Age=0",
     ];
     if (env_1.env.NODE_ENV === "production")

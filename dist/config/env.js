@@ -37,16 +37,16 @@ const zod_1 = require("zod");
         }
     }
 })();
-const envSchema = zod_1.z.object({
+const envSchemaCore = zod_1.z.object({
     NODE_ENV: zod_1.z.enum(["development", "test", "production"]).default("development"),
     PORT: zod_1.z.coerce.number().default(4000),
     // Database connection (MySQL/TiDB)
     DB_URL: zod_1.z.string().optional(), // Optional MySQL URL (e.g. mysql://user:pass@host:4000/db)
     DB_HOST: zod_1.z.string().default("localhost"),
     DB_PORT: zod_1.z.coerce.number().default(3306),
-    DB_USER: zod_1.z.string(),
+    DB_USER: zod_1.z.string().optional(),
     DB_PASSWORD: zod_1.z.string().optional().default(""),
-    DB_NAME: zod_1.z.string(),
+    DB_NAME: zod_1.z.string().optional(),
     DB_CONN_LIMIT: zod_1.z.coerce.number().default(10),
     DB_SOCKET: zod_1.z.string().optional(),
     // TLS/SSL options for TiDB Cloud & MySQL over the Internet
@@ -55,10 +55,24 @@ const envSchema = zod_1.z.object({
     CORS_ORIGIN: zod_1.z.string().optional().default("*"),
     JWT_SECRET: zod_1.z.string().default("25ad4e9647b1d9bd62cfa40175eb0296c2e3d75c332b837446e85931a5e96579"),
     COOKIE_DOMAIN: zod_1.z.string().optional(),
+    // Cookie SameSite behavior. Use "None" for cross-site (frontend and backend on different domains)
+    COOKIE_SAMESITE: zod_1.z.enum(["Lax", "None", "Strict"]).optional().default("Lax"),
     // S3/R2 storage (optional)
     S3_BUCKET: zod_1.z.string().optional(),
     S3_REGION: zod_1.z.string().optional(),
     S3_ENDPOINT: zod_1.z.string().optional(), // for R2 or custom endpoints
     S3_PUBLIC_BASE_URL: zod_1.z.string().optional(), // e.g. https://cdn.example.com or https://<bucket>.<region>.amazonaws.com
+});
+// Allow either full DB_URL or discrete fields (DB_USER + DB_NAME at minimum)
+const envSchema = envSchemaCore.superRefine((val, ctx) => {
+    const hasURL = Boolean(val.DB_URL);
+    const hasDiscrete = Boolean(val.DB_USER && val.DB_NAME);
+    if (!hasURL && !hasDiscrete) {
+        ctx.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: "Provide either DB_URL or both DB_USER and DB_NAME",
+            path: ["DB_URL"],
+        });
+    }
 });
 exports.env = envSchema.parse(process.env);
