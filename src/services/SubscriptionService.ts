@@ -24,6 +24,12 @@ export class SubscriptionService {
 
         // Grant carry-over credits for current window (super likes only)
         try {
+            // Only grant on an upgrade (strictly higher tier), never on same-tier re-subscribe or downgrade
+            const rank = (t: PlanTier): number => ({ free: 0, plus: 1, gold: 2, premium: 3 } as const)[t];
+            const isUpgrade = rank(plan as PlanTier) > rank(prevTier);
+            if (!isUpgrade) {
+                return session;
+            }
             // Base quotas per tier
             const baseFor = (tier: PlanTier): number | null => {
                 if (tier === "premium") return null; // unlimited
