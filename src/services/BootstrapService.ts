@@ -106,6 +106,29 @@ export async function bootstrapDatabase() {
     await db.execute(`ALTER TABLE users ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0 AFTER setup_complete`);
   }
 
+  // Ensure geolocation columns exist (latitude, longitude) and last_seen
+  const { rows: hasLat } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'latitude'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(hasLat) || hasLat.length === 0) {
+    await db.execute(`ALTER TABLE users ADD COLUMN latitude DECIMAL(10,7) NULL AFTER location`);
+  }
+  const { rows: hasLon } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'longitude'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(hasLon) || hasLon.length === 0) {
+    await db.execute(`ALTER TABLE users ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude`);
+  }
+  const { rows: hasLastSeen } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'last_seen'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(hasLastSeen) || hasLastSeen.length === 0) {
+    await db.execute(`ALTER TABLE users ADD COLUMN last_seen DATETIME NULL AFTER longitude`);
+  }
+
   // Profile preferences
   await db.execute(`CREATE TABLE IF NOT EXISTS profile_preferences (
     user_id INT UNSIGNED NOT NULL,
@@ -238,6 +261,20 @@ export async function bootstrapDatabase() {
     CONSTRAINT fk_boost_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+  // Subscription resource credits (carry-over when upgrading tiers)
+  await db.execute(`CREATE TABLE IF NOT EXISTS resource_credits (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id INT UNSIGNED NOT NULL,
+    type ENUM('super_like','boost') NOT NULL,
+    amount INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_user_type (user_id, type),
+    KEY idx_expiry (expires_at),
+    CONSTRAINT fk_rc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
   // Soft-deleted users snapshot table
   await db.execute(`CREATE TABLE IF NOT EXISTS soft_deleted_users (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -247,6 +284,9 @@ export async function bootstrapDatabase() {
     birthdate DATE NULL,
     gender ENUM('male','female','non-binary','other') NULL,
     location VARCHAR(255) NULL,
+    latitude DECIMAL(10,7) NULL,
+    longitude DECIMAL(10,7) NULL,
+    last_seen DATETIME NULL,
     bio TEXT NULL,
     photos JSON NULL,
     preferences JSON NULL,
@@ -256,6 +296,29 @@ export async function bootstrapDatabase() {
     KEY idx_email (email),
     CONSTRAINT fk_sdu_user FOREIGN KEY (source_user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  // Ensure soft_deleted_users has geo columns (idempotent)
+  const { rows: sduHasLat } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'soft_deleted_users' AND COLUMN_NAME = 'latitude'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(sduHasLat) || sduHasLat.length === 0) {
+    await db.execute(`ALTER TABLE soft_deleted_users ADD COLUMN latitude DECIMAL(10,7) NULL AFTER location`);
+  }
+  const { rows: sduHasLon } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'soft_deleted_users' AND COLUMN_NAME = 'longitude'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(sduHasLon) || sduHasLon.length === 0) {
+    await db.execute(`ALTER TABLE soft_deleted_users ADD COLUMN longitude DECIMAL(10,7) NULL AFTER latitude`);
+  }
+  const { rows: sduHasLast } = await db.query<any>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'soft_deleted_users' AND COLUMN_NAME = 'last_seen'`,
+    [env.DB_NAME]
+  );
+  if (!Array.isArray(sduHasLast) || sduHasLast.length === 0) {
+    await db.execute(`ALTER TABLE soft_deleted_users ADD COLUMN last_seen DATETIME NULL AFTER longitude`);
+  }
   } catch (err: any) {
     const hint =
       "If CREATE TABLE is denied, run the schema from backend/README.md manually, or grant CREATE on the DB to your app user.";
